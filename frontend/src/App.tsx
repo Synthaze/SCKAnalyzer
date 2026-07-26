@@ -132,7 +132,7 @@ export default function App() {
     <div className="container">
       <div className="header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24 }}>
         <div>
-          <div className="h1">Single Cycle Kinetics (SCK)</div>
+          <div className="h1">SCKAnalyzer</div>
           <div className="sub">Workflow for single-cycle kinetics fitting.</div>
           <div className="header-meta">
             <span className="chip">React + Vite</span>
