@@ -10,6 +10,8 @@
 
 SCKAnalyzer fits multi-injection, single-cycle sensorgrams to a 1:1 Langmuir binding model — with optional mass-transport limitation, instrument drift, and bulk refractive-index offset correction — and reports association/dissociation rate constants, equilibrium affinity, fit-quality diagnostics, and bootstrap confidence intervals. It is released as open-source software to accompany the associated publication (see [Citation](#citation)).
 
+**Live instance:** https://sck.iecb.u-bordeaux.fr
+
 ## Overview
 
 Single-cycle kinetics is an experimental design (used in Surface Plasmon Resonance and Bio-Layer Interferometry instruments, e.g. Biacore/BLItz/Octet) in which a single analyte is injected onto a sensor surface at a series of increasing concentrations without a regeneration step between injections, producing one continuous, multi-step sensorgram per replicate.
@@ -56,7 +58,7 @@ SCKAnalyzer/
 
 - Python ≥ 3.11
 - Node.js ≥ 18
-- Production (Option B below) additionally requires an Ubuntu host with sudo access
+- Production (Option B below) additionally requires an apt-based Linux distribution (e.g. Ubuntu/Debian) with sudo access
 
 ### Development install
 
@@ -103,7 +105,7 @@ You are responsible for building the frontend (`npm run build` in `frontend/`, p
 
 **Option B — Full host (frontend + backend + nginx + systemd)**
 
-`deploy/setup_server.sh` provisions an Ubuntu host end-to-end: builds both the frontend and backend, installs a systemd unit for the backend, and configures nginx to serve the frontend and reverse-proxy `/api/` to it. As shipped, this serves plain HTTP on port 80 with no TLS and assumes IP-only access on a trusted network (see the script's header comments for the exact security assumptions — add TLS/a domain yourself if the host will be reachable more broadly).
+`deploy/setup_server.sh` provisions an apt-based Linux host (e.g. Ubuntu/Debian; it relies on `apt-get` and is not portable to non-apt distributions) end-to-end: builds both the frontend and backend, installs a systemd unit for the backend, and configures nginx to serve the frontend and reverse-proxy `/api/` to it. As shipped, this serves plain HTTP on port 80 with no TLS and assumes IP-only access on a trusted network (see the script's header comments for the exact security assumptions — add TLS/a domain yourself if the host will be reachable more broadly).
 
 Deployment-specific values (app user, install path, virtualenv path, service/site names, backend port) are kept out of the script and out of version control:
 
