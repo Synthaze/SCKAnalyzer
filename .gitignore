@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Env / secrets
+.env
+.env.*
+
+# Editor / OS
+.DS_Store
+
+# Claude Code local settings
+.claude/

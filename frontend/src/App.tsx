@@ -1,0 +1,203 @@
+
+import React, { useMemo, useRef, useState } from "react";
+import type { FitResult } from "./types";
+import { fitCsv as fitCsvApi, fitGlobalCsv as fitGlobalCsvApi } from "./api";
+import { useFilesets } from "./hooks/useFilesets";
+import { useSteps } from "./hooks/useSteps";
+import { useFitOptions } from "./hooks/useFitOptions";
+import UploadSection from "./components/UploadSection";
+import SckParamsSection from "./components/SckParamsSection";
+import FitResultsSection from "./components/FitResultsSection";
+import SimulateSection from "./components/SimulateSection";
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<"upload" | "sck" | "fit" | "simulate">("upload");
+  const filesets = useFilesets();
+  const steps = useSteps(
+    filesets.primaryDataset?.parsed ?? null,
+    filesets.primaryDataset?.replicates[0]?.xCol ?? ""
+  );
+  const fitOptions = useFitOptions();
+  const [fits, setFits] = useState<FitResult[]>([]);
+  const fitAbortRef = useRef<AbortController | null>(null);
+
+  const concCol = filesets.primaryDataset?.replicates[0]?.concCol || null;
+
+  const injectionSteps = useMemo(
+    () => steps.stepsEffective.filter((s) => s.C > 0).sort((a, b) => a.start - b.start),
+    [steps.stepsEffective]
+  );
+
+  const stepsForShading = injectionSteps;
+
+  const sckPreviewSeries = useMemo(() => {
+    const primary = filesets.primaryDataset;
+    if (!primary) return null;
+    const series = filesets.computedSeries.filter((s) => s.datasetId === primary.id);
+    return series.length > 0 ? series : null;
+  }, [filesets.computedSeries, filesets.primaryDataset]);
+
+  const canFit = useMemo(() => {
+    const primary = filesets.primaryDataset;
+    if (!primary || !primary.parsed) return false;
+    const rep0 = primary.replicates[0];
+    if (!rep0?.xCol || !rep0?.yCol) return false;
+    if (!steps.stepsJson.trim()) return false;
+    if (steps.stepsParsed.error) return false;
+    return true;
+  }, [filesets.primaryDataset, steps.stepsJson, steps.stepsParsed.error]);
+
+  async function runFit() {
+    const primary = filesets.primaryDataset;
+    if (!primary || !primary.parsed) return;
+
+    const validReps = primary.replicates.filter((r) => r.xCol && r.yCol);
+    if (validReps.length === 0) return;
+
+    fitAbortRef.current?.abort();
+    fitAbortRef.current = new AbortController();
+    const signal = fitAbortRef.current.signal;
+
+    const n = validReps.length;
+    steps.setStepsStatus(n > 1 ? `Fitting ${n} replicates…` : "Fitting…");
+    setFits([]);
+
+    const {
+      repFitMode,
+      enableDrift, enableBulk, robustLoss, baselineMode,
+      fitKa, fitKd, fitRmax, fitDrift,
+      kaBounds, kdBounds, rmaxBounds, driftBounds,
+      kaFixed, kdFixed, rmaxFixed, driftFixed,
+      bootstrapN, bootstrapSeed, excludesJson,
+    } = fitOptions;
+
+    const bounds: Record<string, [number | null, number | null]> = {};
+    const fixed: Record<string, number> = {};
+    const parseBound = (v: string) => { const x = Number(v); return Number.isFinite(x) ? x : null; };
+    if (kaBounds.min || kaBounds.max) bounds.ka = [parseBound(kaBounds.min), parseBound(kaBounds.max)];
+    if (kdBounds.min || kdBounds.max) bounds.kd = [parseBound(kdBounds.min), parseBound(kdBounds.max)];
+    if (rmaxBounds.min || rmaxBounds.max) bounds.Rmax = [parseBound(rmaxBounds.min), parseBound(rmaxBounds.max)];
+    if (enableDrift && (driftBounds.min || driftBounds.max))
+      bounds.drift_RU_per_s = [parseBound(driftBounds.min), parseBound(driftBounds.max)];
+    if (!fitKa && kaFixed.trim()) fixed.ka = Number(kaFixed);
+    if (!fitKd && kdFixed.trim()) fixed.kd = Number(kdFixed);
+    if (!fitRmax && rmaxFixed.trim()) fixed.Rmax = Number(rmaxFixed);
+    if (enableDrift && !fitDrift && driftFixed.trim()) fixed.drift_RU_per_s = Number(driftFixed);
+
+    const boundsJson = Object.keys(bounds).length ? JSON.stringify(bounds) : undefined;
+    const fixedJson  = Object.keys(fixed).length  ? JSON.stringify(fixed)  : undefined;
+
+    const sharedArgs = {
+      steps_json: steps.stepsJson.trim() ? steps.stepsJson : undefined,
+      baseline_mode: baselineMode,
+      robust_loss: robustLoss,
+      model: "11" as const,
+      enable_drift: enableDrift,
+      enable_bulk: enableBulk,
+      excludes_json: excludesJson.trim() ? excludesJson : undefined,
+      bootstrap_n: bootstrapN,
+      bootstrap_seed: bootstrapSeed.trim() || undefined,
+      bounds_json: boundsJson,
+      fixed_json: fixedJson,
+      signal,
+    };
+
+    try {
+      let results;
+      if (repFitMode === "global" && n > 1) {
+        results = await fitGlobalCsvApi({
+          file: primary.file,
+          replicates: validReps.map((r) => ({ time_col: r.xCol, ru_col: r.yCol })),
+          ...sharedArgs,
+        });
+      } else {
+        results = await Promise.all(
+          validReps.map((rep) => fitCsvApi({ file: primary.file, time_col: rep.xCol, ru_col: rep.yCol, conc_col: rep.concCol || undefined, ...sharedArgs }))
+        );
+      }
+      setFits(results);
+      const nOk = results.filter((r) => r.success).length;
+      steps.setStepsStatus(
+        n > 1
+          ? `${nOk}/${n} fits complete.`
+          : results[0].success ? "Fit complete." : `Fit finished: ${results[0].message}`
+      );
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === "AbortError") return;
+      steps.setStepsStatus(e instanceof Error ? e.message : "Fit failed.");
+    }
+  }
+
+  return (
+    <div className="container">
+      <div className="header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24 }}>
+        <div>
+          <div className="h1">Single Cycle Kinetics (SCK)</div>
+          <div className="sub">Workflow for single-cycle kinetics fitting.</div>
+          <div className="header-meta">
+            <span className="chip">React + Vite</span>
+            <span className="chip">FastAPI</span>
+            <span className="chip">1:1 Langmuir</span>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, flexShrink: 0 }}>
+          <img src="/arna.png" alt="ARNA logo" style={{ height: 56, width: "auto" }} />
+          <span className="muted" style={{ fontSize: 11, textAlign: "right", maxWidth: 240, lineHeight: 1.4 }}>
+            Developed and maintained at ARNA, INSERM U1212, University of Bordeaux
+          </span>
+        </div>
+      </div>
+
+      <nav className="tabs-nav">
+        <button className={`tab-btn${activeTab === "upload" ? " active" : ""}`} onClick={() => setActiveTab("upload")}>
+          1 · Upload file results
+        </button>
+        <button className={`tab-btn${activeTab === "sck" ? " active" : ""}`} onClick={() => setActiveTab("sck")}>
+          2 · SCK Parameters
+        </button>
+        <button className={`tab-btn${activeTab === "fit" ? " active" : ""}`} onClick={() => setActiveTab("fit")}>
+          3 · Fit
+        </button>
+        <button className={`tab-btn${activeTab === "simulate" ? " active" : ""}`} onClick={() => setActiveTab("simulate")}>
+          4 · Simulate
+        </button>
+      </nav>
+
+      {activeTab === "upload" && (
+        <UploadSection filesets={filesets} stepsForShading={stepsForShading} />
+      )}
+
+      {activeTab === "sck" && (
+        <SckParamsSection
+          steps={steps}
+          canBuildDilution={!!filesets.primaryDataset?.parsed && !!filesets.primaryDataset?.replicates[0]?.xCol}
+          concCol={concCol}
+          previewSeries={sckPreviewSeries}
+          excludeRows={fitOptions.excludeRows}
+          addExcludeRow={fitOptions.addExcludeRow}
+          removeExcludeRow={fitOptions.removeExcludeRow}
+          updateExcludeRow={fitOptions.updateExcludeRow}
+        />
+      )}
+
+      {activeTab === "fit" && (
+        <FitResultsSection
+          fitOptions={fitOptions}
+          runFit={runFit}
+          canFit={canFit}
+          fits={fits}
+          stepsStatus={steps.stepsStatus}
+          stepsForShading={stepsForShading}
+          refCol={filesets.primaryDataset?.replicates[0]?.refDatasetId ? "ref" : ""}
+          injectionSteps={injectionSteps}
+        />
+      )}
+
+      {activeTab === "simulate" && <SimulateSection />}
+
+      <footer className="muted" style={{ textAlign: "center", padding: "10px 0 24px 0" }}>
+        Backend: FastAPI on :8000 · Frontend: Vite on :5173
+      </footer>
+    </div>
+  );
+}

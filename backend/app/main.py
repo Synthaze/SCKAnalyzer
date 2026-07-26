@@ -1,0 +1,354 @@
+
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional, Any, Tuple
+import numpy as np
+import json
+import pandas as pd
+
+from .csv_parser import parse_csv
+from .frd_parser import parse_frd
+from .fit import fit_sck_11_biacore, fit_global_sck_11_biacore, build_steps_from_conc, validate_steps
+
+app = FastAPI(title="SCKAnalyzer API", version="0.2.0")
+
+# Dev-friendly CORS (internal app). Tighten as needed.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def _to_float_array(series: Optional[list]) -> Optional[np.ndarray]:
+    if series is None:
+        return None
+    try:
+        return pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
+    except Exception:
+        out = []
+        for v in series:
+            try:
+                out.append(float(v))
+            except Exception:
+                out.append(np.nan)
+        return np.asarray(out, dtype=float)
+
+
+def _parse_json_field(raw: Optional[str], name: str) -> Tuple[Any, Optional[JSONResponse]]:
+    """Parse an optional JSON string field. Returns (value, error_response)."""
+    if not raw or not raw.strip():
+        return None, None
+    try:
+        return json.loads(raw), None
+    except Exception as e:
+        return None, JSONResponse({"error": f"{name} is not valid JSON: {e}"}, status_code=400)
+
+
+@app.get("/api/health")
+def health():
+    return {"ok": True, "service": "sckanalyzer-api"}
+
+@app.post("/api/parse")
+async def api_parse(
+    file: UploadFile = File(...),
+    delimiter: Optional[str] = Form(None),
+):
+    content = await file.read()
+    filename = file.filename or ""
+    if filename.lower().endswith(".frd"):
+        try:
+            return parse_frd(content, filename=filename)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+    return parse_csv(content, delimiter=delimiter, filename=filename)
+
+@app.post("/api/fit")
+async def api_fit(
+    file: UploadFile = File(...),
+    time_col: str = Form(...),
+    ru_col: str = Form(...),
+    ref_col: Optional[str] = Form(None),
+    conc_col: Optional[str] = Form(None),
+    steps_json: Optional[str] = Form(None),
+    baseline_mode: str = Form("pre_first_inj"),  # "pre_first_inj" or "none"
+    robust_loss: str = Form("soft_l1"),  # "linear", "soft_l1", "huber"
+    model: str = Form("11"),  # "11" or "11_mt"
+    enable_drift: bool = Form(True),
+    enable_bulk: bool = Form(True),
+    excludes_json: Optional[str] = Form(None),
+    bootstrap_n: Optional[int] = Form(None),
+    bootstrap_seed: Optional[int] = Form(None),
+    bounds_json: Optional[str] = Form(None),
+    fixed_json: Optional[str] = Form(None),
+):
+    content = await file.read()
+    filename = file.filename or ""
+    if filename.lower().endswith(".frd"):
+        try:
+            parsed = parse_frd(content, filename=filename)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+    else:
+        parsed = parse_csv(content, filename=filename)
+    cols = parsed["columns"]
+    if time_col not in cols or ru_col not in cols:
+        return JSONResponse({"error": "time_col or ru_col not found in CSV columns"}, status_code=400)
+
+    arr = parsed["data"]
+    t = _to_float_array(arr.get(time_col))
+    y = _to_float_array(arr.get(ru_col))
+    if t is None or y is None:
+        return JSONResponse({"error": "time_col or ru_col could not be converted to numeric values"}, status_code=400)
+    warnings = []
+
+    if ref_col:
+        if ref_col not in cols:
+            return JSONResponse({"error": "ref_col not found in CSV columns"}, status_code=400)
+        ref = _to_float_array(arr.get(ref_col))
+        if ref is None:
+            return JSONResponse({"error": "ref_col could not be converted to numeric values"}, status_code=400)
+        y = y - ref
+
+    if t.size != y.size:
+        return JSONResponse({"error": "time_col and ru_col lengths do not match"}, status_code=400)
+
+    finite_mask = np.isfinite(t) & np.isfinite(y)
+    if ref_col:
+        finite_mask &= np.isfinite(ref)
+
+    if conc_col:
+        if conc_col not in cols:
+            return JSONResponse({"error": "conc_col not found in CSV columns"}, status_code=400)
+        c_all = _to_float_array(arr.get(conc_col))
+        if c_all is None:
+            return JSONResponse({"error": "conc_col could not be converted to numeric values"}, status_code=400)
+        finite_mask &= np.isfinite(c_all)
+    else:
+        c_all = None
+
+    dropped = int(np.size(t) - int(np.sum(finite_mask)))
+    if dropped > 0:
+        warnings.append(f"Dropped {dropped} non-finite rows.")
+    t = t[finite_mask]
+    y = y[finite_mask]
+    if c_all is not None:
+        c_all = c_all[finite_mask]
+
+    if t.size < 5:
+        return JSONResponse({"error": "Not enough valid data points after cleaning."}, status_code=400)
+
+    order = np.argsort(t)
+    sorted_by_time = not np.all(order == np.arange(order.size))
+    if sorted_by_time:
+        warnings.append("Time column was not sorted; data were sorted by time.")
+    t = t[order]
+    y = y[order]
+    if c_all is not None:
+        c_all = c_all[order]
+    if np.any(np.diff(t) == 0):
+        warnings.append("Duplicate time points detected; consider averaging or thinning.")
+
+    steps_data, err = _parse_json_field(steps_json, "steps_json")
+    if err:
+        return err
+    if steps_data is not None:
+        steps = steps_data
+    elif conc_col:
+        steps = build_steps_from_conc(t, c_all)
+    else:
+        return JSONResponse({"error": "Provide either steps_json or conc_col for automatic steps"}, status_code=400)
+
+    try:
+        steps = validate_steps(steps, t0=float(t[0]), t1=float(t[-1]))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    if baseline_mode == "pre_first_inj":
+        inj = [s for s in steps if s["C"] > 0]
+        if inj:
+            first = min(s["start"] for s in inj)
+            mask = t < first
+            if mask.sum() >= 5:
+                y = y - float(np.median(y[mask]))
+            else:
+                y = y - float(y[0])
+
+    excludes, err = _parse_json_field(excludes_json, "excludes_json")
+    if err:
+        return err
+    if excludes is not None:
+        if not isinstance(excludes, list):
+            return JSONResponse({"error": "excludes_json must be a JSON array"}, status_code=400)
+        validated_excludes = []
+        for i, ex in enumerate(excludes):
+            if not isinstance(ex, dict):
+                return JSONResponse({"error": f"exclude {i} must be an object"}, status_code=400)
+            try:
+                start = float(ex.get("start", float("-inf")))
+                stop = float(ex.get("stop", float("+inf")))
+            except Exception:
+                return JSONResponse({"error": f"exclude {i} start/stop must be numeric"}, status_code=400)
+            validated_excludes.append({"start": start, "stop": stop})
+        excludes = validated_excludes
+
+    bounds, err = _parse_json_field(bounds_json, "bounds_json")
+    if err:
+        return err
+    if bounds is not None and not isinstance(bounds, dict):
+        return JSONResponse({"error": "bounds_json must be a JSON object"}, status_code=400)
+
+    fixed, err = _parse_json_field(fixed_json, "fixed_json")
+    if err:
+        return err
+    if fixed is not None and not isinstance(fixed, dict):
+        return JSONResponse({"error": "fixed_json must be a JSON object"}, status_code=400)
+
+    result = fit_sck_11_biacore(  # type: ignore[assignment]
+        t, y, steps,
+        model=model,
+        robust_loss=robust_loss,
+        enable_drift=enable_drift,
+        enable_bulk=enable_bulk,
+        excludes=excludes,
+        bootstrap_n=int(bootstrap_n) if bootstrap_n is not None else 0,
+        bootstrap_seed=int(bootstrap_seed) if bootstrap_seed is not None else None,
+        bounds_override=bounds,
+        fixed_params=fixed,
+    )
+    if warnings:
+        result["warnings"] = (result.get("warnings") or []) + warnings
+    result["preprocess"] = {
+        "dropped_nonfinite": dropped,
+        "sorted_by_time": sorted_by_time,
+        "n_rows": int(len(arr[time_col])),
+        "n_fit": int(len(t)),
+    }
+    return result
+
+
+@app.post("/api/fit_global")
+async def api_fit_global(
+    file: UploadFile = File(...),
+    replicates_json: str = Form(...),
+    steps_json: Optional[str] = Form(None),
+    baseline_mode: str = Form("pre_first_inj"),
+    robust_loss: str = Form("soft_l1"),
+    model: str = Form("11"),
+    enable_drift: bool = Form(True),
+    enable_bulk: bool = Form(True),
+    excludes_json: Optional[str] = Form(None),
+    bootstrap_n: Optional[int] = Form(None),
+    bootstrap_seed: Optional[int] = Form(None),
+    bounds_json: Optional[str] = Form(None),
+    fixed_json: Optional[str] = Form(None),
+):
+    content = await file.read()
+    filename = file.filename or ""
+    if filename.lower().endswith(".frd"):
+        try:
+            parsed = parse_frd(content, filename=filename)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+    else:
+        parsed = parse_csv(content, filename=filename)
+    cols = parsed["columns"]
+    arr = parsed["data"]
+
+    # Parse replicates list
+    try:
+        replicates_spec = json.loads(replicates_json)
+        if not isinstance(replicates_spec, list) or len(replicates_spec) == 0:
+            return JSONResponse({"error": "replicates_json must be a non-empty array of {time_col, ru_col}"}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": f"replicates_json is not valid JSON: {e}"}, status_code=400)
+
+    steps_data, err = _parse_json_field(steps_json, "steps_json")
+    if err: return err
+
+    excludes, err = _parse_json_field(excludes_json, "excludes_json")
+    if err: return err
+    if excludes is not None:
+        if not isinstance(excludes, list):
+            return JSONResponse({"error": "excludes_json must be a JSON array"}, status_code=400)
+        validated_excludes = []
+        for i, ex in enumerate(excludes):
+            if not isinstance(ex, dict):
+                return JSONResponse({"error": f"exclude {i} must be an object"}, status_code=400)
+            try:
+                start = float(ex.get("start", float("-inf")))
+                stop = float(ex.get("stop", float("+inf")))
+            except Exception:
+                return JSONResponse({"error": f"exclude {i} start/stop must be numeric"}, status_code=400)
+            validated_excludes.append({"start": start, "stop": stop})
+        excludes = validated_excludes
+
+    bounds, err = _parse_json_field(bounds_json, "bounds_json")
+    if err: return err
+    if bounds is not None and not isinstance(bounds, dict):
+        return JSONResponse({"error": "bounds_json must be a JSON object"}, status_code=400)
+
+    fixed, err = _parse_json_field(fixed_json, "fixed_json")
+    if err: return err
+    if fixed is not None and not isinstance(fixed, dict):
+        return JSONResponse({"error": "fixed_json must be a JSON object"}, status_code=400)
+
+    # Preprocess each replicate
+    reps = []
+    for i, spec in enumerate(replicates_spec):
+        time_col = spec.get("time_col", "")
+        ru_col = spec.get("ru_col", "")
+        if time_col not in cols or ru_col not in cols:
+            return JSONResponse({"error": f"Replicate {i}: time_col or ru_col not found in CSV columns"}, status_code=400)
+        t = _to_float_array(arr.get(time_col))
+        y = _to_float_array(arr.get(ru_col))
+        if t is None or y is None:
+            return JSONResponse({"error": f"Replicate {i}: columns could not be converted to numeric"}, status_code=400)
+        finite_mask = np.isfinite(t) & np.isfinite(y)
+        t = t[finite_mask]; y = y[finite_mask]
+        if t.size < 5:
+            return JSONResponse({"error": f"Replicate {i}: not enough valid data points"}, status_code=400)
+        order = np.argsort(t); t = t[order]; y = y[order]
+        reps.append((t, y))
+
+    # Validate and apply steps (same time grid assumed for all reps — use first rep)
+    t0 = float(min(r[0][0] for r in reps))
+    t1 = float(max(r[0][-1] for r in reps))
+    if steps_data is None:
+        return JSONResponse({"error": "steps_json is required for global fit"}, status_code=400)
+    try:
+        steps = validate_steps(steps_data, t0=t0, t1=t1)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    # Baseline correction per replicate
+    if baseline_mode == "pre_first_inj":
+        inj_steps = [s for s in steps if s["C"] > 0]
+        if inj_steps:
+            first = min(s["start"] for s in inj_steps)
+            corrected = []
+            for t_i, y_i in reps:
+                mask = t_i < first
+                if mask.sum() >= 5:
+                    y_i = y_i - float(np.median(y_i[mask]))
+                else:
+                    y_i = y_i - float(y_i[0])
+                corrected.append((t_i, y_i))
+            reps = corrected
+
+    results = fit_global_sck_11_biacore(
+        reps, steps,
+        model=model,
+        robust_loss=robust_loss,
+        enable_drift=enable_drift,
+        enable_bulk=enable_bulk,
+        excludes=excludes,
+        bootstrap_n=int(bootstrap_n) if bootstrap_n is not None else 0,
+        bootstrap_seed=int(bootstrap_seed) if bootstrap_seed is not None else None,
+        bounds_override=bounds,
+        fixed_params=fixed,
+    )
+    return {"fit_mode": "global", "replicates": results}
