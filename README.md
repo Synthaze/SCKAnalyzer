@@ -4,6 +4,8 @@
 
 # SCKAnalyzer
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
 **A web application for global kinetic analysis of Single-Cycle Kinetics (SCK) biosensor experiments (SPR / BLI).**
 
 SCKAnalyzer fits multi-injection, single-cycle sensorgrams to a 1:1 Langmuir binding model — with optional mass-transport limitation, instrument drift, and bulk refractive-index offset correction — and reports association/dissociation rate constants, equilibrium affinity, fit-quality diagnostics, and bootstrap confidence intervals. It is released as open-source software to accompany the associated publication (see [Citation](#citation)).
@@ -124,6 +126,10 @@ sudo ./deploy/setup_server.sh
 ### Input data format
 
 Generic CSV input requires at minimum a time column and a response column (e.g. `time`, `ru`), with optional reference and concentration columns. Example datasets are provided in `backend/tests/`. Octet BLI `.frd` files are parsed directly (baseline/association/dissociation segments are stitched automatically; regeneration/neutralization steps are excluded).
+
+### Testing
+
+There is no automated test suite (no CI, no `pytest`). `backend/tests/` holds example sensorgrams for manual smoke-testing: start the app (see Installation) and upload one of them via the UI to verify parsing, step auto-detection, and fitting end to end.
 
 ### API
 
