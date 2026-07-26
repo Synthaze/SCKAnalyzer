@@ -48,14 +48,19 @@ SCKAnalyzer/
 └── Dockerfile          Backend container image
 ```
 
-## Getting started
+## Installation
 
 ### Requirements
 
 - Python ≥ 3.11
 - Node.js ≥ 18
+- Production (Option B below) additionally requires an Ubuntu host with sudo access
 
-### 1) Backend (FastAPI)
+### Development install
+
+Runs the backend with auto-reload and the frontend with Vite's dev server. Intended for local development, not for serving real users.
+
+**1) Backend (FastAPI)**
 
 ```bash
 cd backend
@@ -67,7 +72,7 @@ uvicorn app.main:app --reload --port 8000
 
 Health check: `http://localhost:8000/api/health`
 
-### 2) Frontend (React)
+**2) Frontend (React)**
 
 ```bash
 cd frontend
@@ -77,20 +82,32 @@ npm run dev
 
 Open `http://localhost:5173` — the Vite dev server proxies `/api/*` to `http://localhost:8000`.
 
-### Docker
+> The backend's CORS policy (`backend/app/main.py`) is intentionally permissive (`allow_origins=["*"]`) for local development. Tighten it before exposing the API beyond a trusted network (see Production, below).
 
-A `Dockerfile` is provided to build a backend-only image locally (no pre-built image is published on a registry):
+### Production install
+
+Two supported paths, depending on whether you want just the API in a container or a full turnkey host.
+
+**Option A — Backend API only, via Docker**
+
+Builds a container image for the FastAPI backend only (no pre-built image is published on a registry, and the frontend is not included):
 
 ```bash
 docker build -t sckanalyzer-backend .
 docker run -p 8000:8000 sckanalyzer-backend
 ```
 
-### Server deployment
+You are responsible for building the frontend (`npm run build` in `frontend/`, producing `frontend/dist/`) and serving those static files yourself (nginx, any static host, etc.), configured to send `/api/*` to this backend container. You should also restrict the backend's CORS `allow_origins` (`backend/app/main.py`) to your actual frontend origin(s).
 
-For a combined deployment (built frontend served by nginx, backend behind a reverse proxy, systemd-managed), see `deploy/setup_server.sh`. Deployment-specific values (app user, install path, virtualenv path, service/site names, backend port) are kept out of the script and out of version control: copy `deploy/config.example.sh` to `deploy/config.sh`, adjust it for your server, then run:
+**Option B — Full host (frontend + backend + nginx + systemd)**
+
+`deploy/setup_server.sh` provisions an Ubuntu host end-to-end: builds both the frontend and backend, installs a systemd unit for the backend, and configures nginx to serve the frontend and reverse-proxy `/api/` to it. As shipped, this serves plain HTTP on port 80 with no TLS and assumes IP-only access on a trusted network (see the script's header comments for the exact security assumptions — add TLS/a domain yourself if the host will be reachable more broadly).
+
+Deployment-specific values (app user, install path, virtualenv path, service/site names, backend port) are kept out of the script and out of version control:
 
 ```bash
+cp deploy/config.example.sh deploy/config.sh
+$EDITOR deploy/config.sh   # adjust for your server
 sudo ./deploy/setup_server.sh
 ```
 
