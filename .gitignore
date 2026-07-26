@@ -14,6 +14,7 @@ __pycache__/
 # Env / secrets
 .env
 .env.*
+deploy/config.sh
 
 # Editor / OS
 .DS_Store

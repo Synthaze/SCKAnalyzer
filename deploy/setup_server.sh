@@ -1,26 +1,31 @@
 #!/usr/bin/env bash
 #
-# Provisions this Ubuntu box to host the SCK Analysis app (FastAPI backend +
-# React/Vite frontend) behind nginx on port 80, no TLS, IP-only access.
+# Provisions an Ubuntu box to host SCKAnalyzer (FastAPI backend + React/Vite
+# frontend) behind nginx on port 80, no TLS, IP-only access.
+#
+# Configuration:
+#   Copy config.example.sh to config.sh (same directory as this script) and
+#   adjust it for your server before running. config.sh is gitignored, so
+#   your deployment-specific values (paths, usernames, ports) are never
+#   committed to the repository.
 #
 # Run as: sudo ./setup_server.sh
 #
 # What it does:
-#   - installs system packages: nginx, ufw, python3-venv, Node.js 20 LTS
+#   - installs system packages: nginx, python3-venv, Node.js 20 LTS
 #   - (re)builds the backend virtualenv and installs Python deps
 #   - builds the frontend static bundle (npm ci && npm run build)
-#   - installs a systemd unit that runs uvicorn on 127.0.0.1:8000
+#   - installs a systemd unit that runs uvicorn on 127.0.0.1:<BACKEND_PORT>
 #   - installs an nginx site that serves the frontend and reverse-proxies
 #     /api/ to the backend, replacing the distro default site
 #
-# No firewall (ufw) is configured on this container by design: exposure is
-# gated externally (port-forward/NAT/reverse proxy at the router or Proxmox
-# host), and that's treated as the sole boundary here.
+# No firewall is configured by this script: exposure to the network is
+# assumed to be gated externally (e.g. a router/NAT rule or a reverse proxy
+# upstream of this host), which is treated as the sole boundary here.
 #
-# It does NOT touch anything outside this container: no domain, no TLS
-# cert, no router/NAT config. Making this box reachable from the public
-# internet (port-forwarding 80 -> this container's LAN IP, or a reverse
-# proxy on the Proxmox host) is assumed to be handled elsewhere.
+# It does NOT touch anything outside this host: no domain, no TLS cert, no
+# router/NAT configuration. Making this host reachable beyond its local
+# network is assumed to be handled elsewhere.
 #
 # Safe to re-run: every step is idempotent.
 
@@ -31,14 +36,26 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-APP_USER="florian"
-APP_DIR="/home/florian/sck-analysis_v0.9"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/config.sh"
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "Missing $CONFIG_FILE." >&2
+  echo "Copy $SCRIPT_DIR/config.example.sh to $CONFIG_FILE, adjust it for your server, then re-run." >&2
+  exit 1
+fi
+# shellcheck source=config.example.sh
+source "$CONFIG_FILE"
+
+: "${APP_USER:?APP_USER must be set in $CONFIG_FILE}"
+: "${APP_DIR:?APP_DIR must be set in $CONFIG_FILE}"
+: "${VENV_DIR:?VENV_DIR must be set in $CONFIG_FILE}"
+: "${SERVICE_NAME:?SERVICE_NAME must be set in $CONFIG_FILE}"
+: "${NGINX_SITE:?NGINX_SITE must be set in $CONFIG_FILE}"
+: "${BACKEND_PORT:?BACKEND_PORT must be set in $CONFIG_FILE}"
+
 BACKEND_DIR="$APP_DIR/backend"
 FRONTEND_DIR="$APP_DIR/frontend"
-VENV_DIR="/home/florian/env"
-SERVICE_NAME="sck-backend"
-NGINX_SITE="sck-analysis"
-BACKEND_PORT=8000
 
 if [[ ! -d "$APP_DIR" ]]; then
   echo "Expected app at $APP_DIR — not found." >&2
@@ -78,7 +95,7 @@ sudo -u "$APP_USER" bash -c "cd '$FRONTEND_DIR' && npm ci && npm run build"
 echo "==> Installing systemd service: $SERVICE_NAME"
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=SCK Analysis FastAPI backend
+Description=SCKAnalyzer FastAPI backend
 After=network.target
 
 [Service]
@@ -102,10 +119,11 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 
-echo "==> Granting nginx (www-data) traversal into ${APP_USER}'s home"
-# nginx serves the frontend straight out of $APP_USER's home dir, which is
-# mode 750 (owner-only). Adding www-data to the app user's group grants it
-# just the existing group r-x bit (traversal), not world access.
+echo "==> Granting nginx (www-data) traversal into ${APP_DIR}"
+# nginx serves the frontend straight out of APP_DIR, which may not be
+# world-readable (e.g. if it lives under the app user's home directory).
+# Adding www-data to the app user's group grants it just the existing
+# group r-x bit (traversal), not world access.
 usermod -a -G "$APP_USER" www-data
 
 echo "==> Installing nginx site: $NGINX_SITE"
@@ -153,7 +171,6 @@ LAN_IP="$(hostname -I | awk '{print $1}')"
 echo "App should be reachable on this LAN at: http://${LAN_IP}/"
 echo "Backend health check: http://127.0.0.1:${BACKEND_PORT}/api/health"
 echo
-echo "Reminder: this only configures the container itself. Reaching it from"
-echo "the public internet still needs whatever port-forward / reverse proxy"
-echo "you're setting up at the router or Proxmox host level (-> port 80 on"
-echo "${LAN_IP})."
+echo "Reminder: this only configures this host itself. Reaching it from the"
+echo "public internet still needs whatever port-forward / reverse proxy you"
+echo "set up upstream (router or hypervisor) -> port 80 on ${LAN_IP}."

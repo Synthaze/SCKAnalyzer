@@ -44,7 +44,7 @@ SCKAnalyzer/
 │   │   └── frd_parser.py    Octet BLI .frd (XML) parsing
 │   └── tests/           Example sensorgram datasets
 ├── frontend/           React + Vite + Plotly single-page application
-├── deploy/             Reference nginx/systemd provisioning script
+├── deploy/             Reference nginx/systemd provisioning script + config template
 └── Dockerfile          Backend container image
 ```
 
@@ -79,14 +79,22 @@ Open `http://localhost:5173` — the Vite dev server proxies `/api/*` to `http:/
 
 ### Docker
 
-A backend-only container image is provided:
+A `Dockerfile` is provided to build a backend-only image locally (no pre-built image is published on a registry):
 
 ```bash
 docker build -t sckanalyzer-backend .
 docker run -p 8000:8000 sckanalyzer-backend
 ```
 
-For a combined deployment (built frontend served by nginx, backend behind a reverse proxy, systemd-managed), see `deploy/setup_server.sh`.
+### Server deployment
+
+For a combined deployment (built frontend served by nginx, backend behind a reverse proxy, systemd-managed), see `deploy/setup_server.sh`. Deployment-specific values (app user, install path, virtualenv path, service/site names, backend port) are kept out of the script and out of version control: copy `deploy/config.example.sh` to `deploy/config.sh`, adjust it for your server, then run:
+
+```bash
+sudo ./deploy/setup_server.sh
+```
+
+`deploy/config.sh` is gitignored, so your server's paths and usernames are never committed.
 
 ## Usage
 
@@ -125,4 +133,5 @@ SCKAnalyzer is released under the [GNU General Public License v3.0](LICENSE) (GP
 
 ## Contact
 
-Florian Malard — florian.malard@gmail.com
+- Florian Malard — florian.malard@gmail.com
+- Carmelo Di Primo — carmelo.di-primo@inserm.fr
