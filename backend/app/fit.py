@@ -440,10 +440,17 @@ def fit_sck_11_biacore(
     ka, kd, rmax, drift, kt, bulk = unpack(res.x)
     KD = float(kd/ka) if ka > 0 else float("nan")
 
+    # Full trace (may include user-excluded windows); used for plotting/QC only.
     yhat = predict(t, res.x)
     resid = (yhat - y)
-    ss_res = float(np.sum(resid**2))
-    ss_tot = float(np.sum((y - np.mean(y))**2))
+
+    # Fit-quality diagnostics and standard errors use only the points that
+    # actually informed the fit: excluded windows are not part of the
+    # objective, so they must not count toward reported goodness-of-fit.
+    yhat_fit = predict(t_fit, res.x)
+    resid_fit = yhat_fit - y_fit
+    ss_res = float(np.sum(resid_fit**2))
+    ss_tot = float(np.sum((y_fit - np.mean(y_fit))**2))
     r2 = float(1.0 - ss_res/ss_tot) if ss_tot > 0 else float("nan")
 
     # Covariance approx
@@ -453,7 +460,7 @@ def fit_sck_11_biacore(
     try:
         J = res.jac
         dof = max(1, len(y_fit) - len(res.x))
-        s2 = float(np.sum((predict(t_fit, res.x) - y_fit)**2)) / dof
+        s2 = float(np.sum(resid_fit**2)) / dof
         cov, cov_cond = _covariance_from_jacobian(J)
         if cov is not None:
             cov = cov * s2
@@ -469,7 +476,7 @@ def fit_sck_11_biacore(
     if enable_bulk and bulk is not None:
         params["bulk_offsets_RU"] = bulk.tolist()
 
-    fit_quality = _fit_quality_metrics(resid, res.cost, res.nfev, len(res.x))
+    fit_quality = _fit_quality_metrics(resid_fit, res.cost, res.nfev, len(res.x))
     fit_quality["r2"] = r2
 
     warnings: List[str] = []
@@ -516,12 +523,11 @@ def fit_sck_11_biacore(
 
     if bootstrap_n and bootstrap_n > 0:
         rng = np.random.default_rng(bootstrap_seed)
-        resid_fit = predict(t_fit, res.x) - y_fit
         params_list: List[Dict[str, float]] = []
         failures = 0
         for _ in range(int(bootstrap_n)):
             idx = rng.integers(0, len(resid_fit), size=len(resid_fit))
-            yb = y_fit + resid_fit[idx]
+            yb = yhat_fit + resid_fit[idx]
             try:
                 res_b = _run_fit(yb, res.x)
                 if not res_b.success:
@@ -736,8 +742,9 @@ def fit_global_sck_11_biacore(
             for ri, (t_fit_i, y_fit_i) in enumerate(reps_fit):
                 n_i = split_pts[ri]
                 r_i = resid_concat[ptr: ptr + n_i]
+                yhat_fit_i = y_fit_i + r_i  # model prediction at the optimum (r_i = yhat - y_fit_i)
                 idx_bs = rng.integers(0, n_i, size=n_i)
-                new_reps_fit_bs.append((t_fit_i, y_fit_i + r_i[idx_bs]))
+                new_reps_fit_bs.append((t_fit_i, yhat_fit_i + r_i[idx_bs]))
                 ptr += n_i
             try:
                 res_b = least_squares(
@@ -764,13 +771,22 @@ def fit_global_sck_11_biacore(
     results: List[Dict[str, Any]] = []
     for ri, (t_i, y_i) in enumerate(reps):
         drift_i, bulk_i = unpack_rep(res.x, ri)
+
+        # Full trace (may include user-excluded windows); used for plotting/QC only.
         yhat_i = predict_rep(t_i, res.x, ri)
         resid_i = yhat_i - y_i
-        ss_res = float(np.sum(resid_i ** 2))
-        ss_tot = float(np.sum((y_i - np.mean(y_i)) ** 2))
+
+        # Fit-quality diagnostics use only the points that actually informed
+        # the fit for this replicate (excluded windows are not part of the
+        # objective, so they must not count toward reported goodness-of-fit).
+        t_fit_i, y_fit_i = reps_fit[ri]
+        yhat_fit_i = predict_rep(t_fit_i, res.x, ri)
+        resid_fit_i = yhat_fit_i - y_fit_i
+        ss_res = float(np.sum(resid_fit_i ** 2))
+        ss_tot = float(np.sum((y_fit_i - np.mean(y_fit_i)) ** 2))
         r2_i = float(1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
         k_eff = n_shared + per_rep
-        fq_i = _fit_quality_metrics(resid_i, res.cost, res.nfev, k_eff)
+        fq_i = _fit_quality_metrics(resid_fit_i, res.cost, res.nfev, k_eff)
         fq_i["r2"] = r2_i
 
         se_out: Optional[Dict[str, float]] = None
