@@ -322,6 +322,11 @@ button.secondary:hover:not(:disabled) {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
 }
+/* Unit symbols are case-sensitive (nM vs NM, s vs S) — exempt them from the
+   header's uppercase styling above. */
+.result-table thead th .unit {
+  text-transform: none;
+}
 .result-table th {
   text-align: left;
   color: var(--text-2);
@@ -383,12 +388,13 @@ details[open] summary { margin-bottom: 10px; color: var(--text); }
   transition: color .15s;
 }
 .helptip:hover .helptip-icon { color: var(--accent); }
+
+/* Rendered via a portal into document.body (see HelpTip.tsx) and positioned
+   with fixed coordinates computed in JS, so it can never be clipped by a
+   scrollable/overflow ancestor (e.g. the overflow-x:auto table wrappers used
+   throughout SCK Parameters and Fit). */
 .helptip-bubble {
-  display: none;
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed;
   background: var(--text);
   color: #fff;
   font-size: 12px;
@@ -400,10 +406,9 @@ details[open] summary { margin-bottom: 10px; color: var(--text); }
   max-width: 280px;
   white-space: normal;
   pointer-events: none;
-  z-index: 100;
+  z-index: 1000;
   box-shadow: var(--shadow);
 }
-.helptip:hover .helptip-bubble { display: block; }
 
 /* ─── Cursor badges ──────────────────────────────── */
 .cursor-badge {

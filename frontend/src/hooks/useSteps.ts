@@ -31,7 +31,6 @@ export type UseStepsResult = {
   setDissDur: (v: number) => void;
   buildDilutionSeries: () => void;
   createStepsFromCursors: (cursors: number[]) => void;
-  buildStepsFromConcCol: (concCol: string) => void;
 };
 
 export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult {
@@ -155,62 +154,6 @@ export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult
     setStepsJson(JSON.stringify(steps, null, 2));
   }
 
-  function buildStepsFromConcCol(concCol: string) {
-    if (!parsed || !timeCol) {
-      setStepsStatus("Parse a file and pick a time column first.");
-      return;
-    }
-    const t = (parsed.data[timeCol] ?? []).map(Number);
-    const c = (parsed.data[concCol] ?? []).map(Number);
-    if (t.length < 2) {
-      setStepsStatus("Time column looks empty.");
-      return;
-    }
-
-    const MIN_STEP_DURATION = 0.5;
-    const boundaries: number[] = [0];
-    for (let i = 0; i < c.length - 1; i++) {
-      if (c[i + 1] !== c[i]) boundaries.push(i + 1);
-    }
-    boundaries.push(c.length);
-
-    const raw: Step[] = [];
-    for (let bi = 0; bi < boundaries.length - 1; bi++) {
-      const a = boundaries[bi];
-      const b = boundaries[bi + 1];
-      if (b - a < 2) continue;
-      const start = t[a];
-      const stop = t[b - 1];
-      if (stop - start < MIN_STEP_DURATION) continue;
-      raw.push({ start, stop, C: c[a] });
-    }
-
-    // Merge adjacent segments with the same concentration (port of Python build_steps_from_conc)
-    const merged: Step[] = [];
-    for (const s of raw) {
-      if (!merged.length) {
-        merged.push({ ...s });
-      } else {
-        const prev = merged[merged.length - 1];
-        if (Math.abs(prev.C - s.C) < 1e-12 && Math.abs(prev.stop - s.start) < 1e-6) {
-          prev.stop = s.stop;
-        } else {
-          merged.push({ ...s });
-        }
-      }
-    }
-
-    const injections = merged.filter((s) => s.C > 0);
-
-    if (injections.length === 0) {
-      setStepsStatus("No injection steps (C > 0) detected in column.");
-      return;
-    }
-
-    syncSteps(injections);
-    setStepsStatus(`Auto-detected ${injections.length} injection step(s) from "${concCol}".`);
-  }
-
   function createStepsFromCursors(cursors: number[]) {
     if (cursors.length < 2) {
       setStepsStatus("Need at least 2 markers to create steps.");
@@ -254,6 +197,5 @@ export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult
     setDissDur,
     buildDilutionSeries,
     createStepsFromCursors,
-    buildStepsFromConcCol,
   };
 }

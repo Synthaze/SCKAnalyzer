@@ -4,11 +4,11 @@ import Plotly from "plotly.js-dist-min";
 import type { UseStepsResult } from "../hooks/useSteps";
 import type { ExcludeRow } from "../hooks/useFitOptions";
 import HelpTip from "./HelpTip";
+import { CONC_UNITS, CONC_MULT, type ConcUnit } from "../lib/units";
 
 type Props = {
   steps: UseStepsResult;
   canBuildDilution: boolean;
-  concCol: string | null;
   previewSeries: Array<{ t: number[]; y: number[]; label: string }> | null;
   excludeRows: ExcludeRow[];
   addExcludeRow: () => void;
@@ -19,22 +19,21 @@ type Props = {
 export default function SckParamsSection({
   steps,
   canBuildDilution,
-  concCol,
   previewSeries,
   excludeRows,
   addExcludeRow,
   removeExcludeRow,
   updateExcludeRow,
 }: Props) {
-  const [buildMode, setBuildMode] = useState<"markers" | "dilution" | "conc">("markers");
+  const [buildMode, setBuildMode] = useState<"markers" | "dilution">("markers");
   const [cursorTimes, setCursorTimes] = useState<number[]>([]);
   const [addCursorMode, setAddCursorMode] = useState(false);
+  const [concUnit, setConcUnit] = useState<ConcUnit>("nM");
 
   const {
-    stepsJson, setStepsJson,
     stepsTable, stepsStatus, stepsParsed, stepsEffective,
     syncSteps, updateStep, addStepRow, removeStepRow,
-    createStepsFromCursors, buildStepsFromConcCol,
+    createStepsFromCursors,
     injStart, setInjStart,
     injDur, setInjDur,
     gapDur, setGapDur,
@@ -93,7 +92,16 @@ export default function SckParamsSection({
     <div>
       {/* Injection steps card */}
       <div className="card">
-        <h3>Injection steps<HelpTip text="Time windows where analyte is injected. Each step defines a start time, stop time, and concentration (M). Association kinetics are fitted within these windows; dissociation follows each stop time." /></h3>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0, flex: 1 }}>Injection steps<HelpTip text="Time windows where analyte is injected. Each step defines a start time, stop time, and concentration. Association kinetics are fitted within these windows; dissociation follows each stop time." /></h3>
+          <label style={{ flexDirection: "row", alignItems: "center", gap: 6, fontSize: 12 }}>
+            Unit
+            <select value={concUnit} onChange={(e) => setConcUnit(e.target.value as ConcUnit)}
+              style={{ padding: "4px 24px 4px 8px", fontSize: 12 }}>
+              {CONC_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </label>
+        </div>
 
         {/* Mode toggle */}
         <div className="row" style={{ marginBottom: 14 }}>
@@ -109,14 +117,6 @@ export default function SckParamsSection({
           >
             From dilution series
           </button>
-          {concCol && (
-            <button
-              className={buildMode === "conc" ? "primary" : "secondary"}
-              onClick={() => setBuildMode("conc")}
-            >
-              From concentration column
-            </button>
-          )}
         </div>
 
         {/* Method A — injection markers */}
@@ -255,32 +255,13 @@ export default function SckParamsSection({
           </div>
         )}
 
-        {/* Method C — concentration column (FRD) */}
-        {buildMode === "conc" && (
-          <div style={{ marginBottom: 14 }}>
-            {concCol ? (
-              <>
-                <p className="muted" style={{ marginBottom: 8 }}>
-                  Concentration column <strong>{concCol}</strong> detected. Steps are derived from
-                  concentration change-points; baseline and dissociation segments (C = 0) are included.
-                </p>
-                <button className="secondary" onClick={() => buildStepsFromConcCol(concCol)}>
-                  Auto-detect steps from {concCol}
-                </button>
-              </>
-            ) : (
-              <p className="muted">No concentration column found in the current dataset.</p>
-            )}
-          </div>
-        )}
-
         {/* Step table — always visible */}
         <table className="result-table">
           <thead>
             <tr>
-              <th>Start (s)<HelpTip text="Injection window start time (seconds). Association phase begins here." /></th>
-              <th>Stop (s)<HelpTip text="Injection window end time (seconds). Dissociation phase begins after this point." /></th>
-              <th>Conc (M)<HelpTip text="Analyte concentration during this injection (molar). Set to 0 for baseline or dissociation-only segments." /></th>
+              <th>Start <span className="unit">(s)</span><HelpTip text="Injection window start time (seconds). Association phase begins here." /></th>
+              <th>Stop <span className="unit">(s)</span><HelpTip text="Injection window end time (seconds). Dissociation phase begins after this point." /></th>
+              <th>Concentration <span className="unit">({concUnit})</span><HelpTip text="Analyte concentration during this injection, shown in the unit selected above (stored internally in molar). Set to 0 for baseline or dissociation-only segments." /></th>
               <th></th>
             </tr>
           </thead>
@@ -294,7 +275,18 @@ export default function SckParamsSection({
                 <tr key={`step-${i}`}>
                   <td><input type="number" value={s.start} onChange={(e) => updateStep(i, "start", Number(e.target.value))} step="0.1" /></td>
                   <td><input type="number" value={s.stop} onChange={(e) => updateStep(i, "stop", Number(e.target.value))} step="0.1" /></td>
-                  <td><input type="number" value={s.C} onChange={(e) => updateStep(i, "C", Number(e.target.value))} step="1e-9" /></td>
+                  <td>
+                    <input
+                      key={`C-${i}-${concUnit}`}
+                      type="text"
+                      inputMode="decimal"
+                      defaultValue={s.C / CONC_MULT[concUnit]}
+                      onBlur={(e) => {
+                        const v = Number(e.target.value);
+                        if (Number.isFinite(v)) updateStep(i, "C", v * CONC_MULT[concUnit]);
+                      }}
+                    />
+                  </td>
                   <td><button className="secondary" onClick={() => removeStepRow(i)}>Remove</button></td>
                 </tr>
               ))
@@ -313,11 +305,6 @@ export default function SckParamsSection({
         {stepsParsed.error && (
           <div className="muted" style={{ marginTop: 6 }}>⚠ {stepsParsed.error}</div>
         )}
-
-        <details style={{ marginTop: 8 }}>
-          <summary className="muted" style={{ cursor: "pointer" }}>Edit raw JSON</summary>
-          <textarea value={stepsJson} onChange={(e) => setStepsJson(e.target.value)} rows={6} />
-        </details>
       </div>
 
       {/* Sensorgram preview with step highlights + cursor markers */}

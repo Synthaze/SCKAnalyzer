@@ -21,8 +21,6 @@ export default function App() {
   const [fits, setFits] = useState<FitResult[]>([]);
   const fitAbortRef = useRef<AbortController | null>(null);
 
-  const concCol = filesets.primaryDataset?.replicates[0]?.concCol || null;
-
   const injectionSteps = useMemo(
     () => steps.stepsEffective.filter((s) => s.C > 0).sort((a, b) => a.start - b.start),
     [steps.stepsEffective]
@@ -150,7 +148,7 @@ export default function App() {
 
       <nav className="tabs-nav">
         <button className={`tab-btn${activeTab === "upload" ? " active" : ""}`} onClick={() => setActiveTab("upload")}>
-          1 · Upload file results
+          1 · Prepare dataset
         </button>
         <button className={`tab-btn${activeTab === "sck" ? " active" : ""}`} onClick={() => setActiveTab("sck")}>
           2 · SCK Parameters
@@ -171,7 +169,6 @@ export default function App() {
         <SckParamsSection
           steps={steps}
           canBuildDilution={!!filesets.primaryDataset?.parsed && !!filesets.primaryDataset?.replicates[0]?.xCol}
-          concCol={concCol}
           previewSeries={sckPreviewSeries}
           excludeRows={fitOptions.excludeRows}
           addExcludeRow={fitOptions.addExcludeRow}

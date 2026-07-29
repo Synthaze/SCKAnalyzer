@@ -7,6 +7,7 @@ export type Replicate = {
   yCol: string;
   concCol: string;
   refDatasetId: string;
+  blankDatasetId: string;
   normalizeBaseline: boolean;
 };
 
@@ -75,7 +76,7 @@ function defaultReplicate(columns: string[]): Replicate {
   const xCol = guessColumn(columns, ["time", "seconds", "sec", "t", "x"]) || columns[0] || "";
   const yCol = guessColumn(columns, ["ru", "response", "signal", "y"]) || columns[1] || "";
   const concCol = guessColumn(columns, ["conc_m", "conc", "concentration"]);
-  return { xCol, yCol, concCol, refDatasetId: "", normalizeBaseline: false };
+  return { xCol, yCol, concCol, refDatasetId: "", blankDatasetId: "", normalizeBaseline: false };
 }
 
 export function useFilesets(): UseFilesetsResult {
@@ -155,6 +156,13 @@ export function useFilesets(): UseFilesetsResult {
         .filter((d): d is FileDataset => d != null && d.parsed != null && d.replicates.length > 0);
       if (sources.length < 2) return prev;
 
+      // Datasets being merged away no longer exist as standalone entries, so
+      // any ref/blank pointing at one of *them* is now meaningless. A ref or
+      // blank pointing at an untouched, external dataset is still valid and
+      // should be carried over rather than silently dropped.
+      const mergedIdsSet = new Set(ids);
+      const carryOverId = (id: string) => (id && !mergedIdsSet.has(id) ? id : "");
+
       const maxRows = Math.max(...sources.map((d) => d.parsed!.n_rows));
       const allCols: string[] = [];
       const allData: Record<string, (string | number | null)[]> = {};
@@ -183,7 +191,8 @@ export function useFilesets(): UseFilesetsResult {
           xCol: newXCol || `${prefix}${d.parsed!.columns[0]}`,
           yCol: newYCol || `${prefix}${d.parsed!.columns[1] ?? d.parsed!.columns[0]}`,
           concCol: newConcCol,
-          refDatasetId: "",
+          refDatasetId: carryOverId(rep0.refDatasetId),
+          blankDatasetId: carryOverId(rep0.blankDatasetId),
           normalizeBaseline: rep0.normalizeBaseline,
         });
       });
@@ -207,8 +216,20 @@ export function useFilesets(): UseFilesetsResult {
         error: "",
       };
 
-      const idsSet = new Set(ids);
-      return [...prev.filter((d) => !idsSet.has(d.id)), mergedDs];
+      // Any *other* dataset that referenced one of the now-merged-away
+      // sources would otherwise be left with a dangling ref/blank id.
+      const remaining = prev
+        .filter((d) => !mergedIdsSet.has(d.id))
+        .map((d) => ({
+          ...d,
+          replicates: d.replicates.map((r) => ({
+            ...r,
+            refDatasetId: carryOverId(r.refDatasetId),
+            blankDatasetId: carryOverId(r.blankDatasetId),
+          })),
+        }));
+
+      return [...remaining, mergedDs];
     });
     setPrimaryId((cur) => (ids.includes(cur) ? newId : cur));
   }, []);
@@ -224,9 +245,9 @@ export function useFilesets(): UseFilesetsResult {
   }, []);
 
   const computedSeries = useMemo<ComputedSeries[]>(() => {
-    // Pass 1: compute base series per (dataset, replicateIndex)
+    // Pass 1: compute raw (sorted, uncorrected) series per (dataset, replicateIndex)
     type BaseEntry = { t: number[]; y: number[] };
-    const baseSeries: Map<string, BaseEntry> = new Map();
+    const rawSeries: Map<string, BaseEntry> = new Map();
 
     for (const d of datasets) {
       if (!d.parsed) continue;
@@ -244,24 +265,47 @@ export function useFilesets(): UseFilesetsResult {
         const t = order.map((i) => tRaw[i]);
         const ySorted = order.map((i) => yRaw[i]);
 
-        let yFinal = ySorted;
-        if (rep.normalizeBaseline && t.length > 0) {
-          const n5pct = Math.max(1, Math.floor(t.length * 0.05));
-          const slice = ySorted.slice(0, n5pct);
-          const sorted = [...slice].sort((a, b) => a - b);
-          const mid = Math.floor(sorted.length / 2);
-          const median =
-            sorted.length % 2 === 0
-              ? (sorted[mid - 1] + sorted[mid]) / 2
-              : sorted[mid];
-          yFinal = ySorted.map((v) => v - median);
-        }
-
-        baseSeries.set(`${d.id}__${ri}`, { t, y: yFinal });
+        rawSeries.set(`${d.id}__${ri}`, { t, y: ySorted });
       }
     }
 
-    // Pass 2: apply cross-dataset reference subtraction
+    // Pass 2: single reference subtraction — sample − ref (and, uniformly,
+    // buffer − buffer_ref for whatever dataset is used as someone's blank).
+    const singleRefSeries: Map<string, BaseEntry> = new Map();
+
+    for (const d of datasets) {
+      if (!d.parsed) continue;
+      for (let ri = 0; ri < d.replicates.length; ri++) {
+        const rep = d.replicates[ri];
+        if (!rep.xCol || !rep.yCol) continue;
+
+        const key = `${d.id}__${ri}`;
+        const base = rawSeries.get(key);
+        if (!base) continue;
+
+        let y = base.y;
+
+        if (rep.refDatasetId && rep.refDatasetId !== d.id) {
+          const refDs = datasets.find((ds) => ds.id === rep.refDatasetId);
+          if (refDs && refDs.replicates.length > 0) {
+            const refBase = rawSeries.get(`${refDs.id}__0`);
+            if (refBase && refBase.t.length > 0) {
+              y = base.t.map((t, i) => base.y[i] - lerp(refBase.t, refBase.y, t));
+            }
+          }
+        }
+
+        singleRefSeries.set(key, { t: base.t, y });
+      }
+    }
+
+    // Pass 3: double reference (blank) subtraction — (sample − sample_ref) −
+    // (blank − blank_ref) — then baseline normalization on the final,
+    // displayed trace. Baseline correction must come last and be driven by
+    // the sample replicate's own toggle — otherwise it silently depends on
+    // whichever baseline flag happens to be set on the reference/blank
+    // dataset's own replicate. Only one level of blank nesting is applied:
+    // the blank's own blank (if any) is not chained further.
     const result: ComputedSeries[] = [];
 
     for (const d of datasets) {
@@ -271,20 +315,31 @@ export function useFilesets(): UseFilesetsResult {
         if (!rep.xCol || !rep.yCol) continue;
 
         const key = `${d.id}__${ri}`;
-        const base = baseSeries.get(key);
-        if (!base) continue;
+        const corrected = singleRefSeries.get(key);
+        if (!corrected) continue;
 
-        let y = base.y;
+        let y = corrected.y;
 
-        if (rep.refDatasetId && rep.refDatasetId !== d.id) {
-          const refDs = datasets.find((ds) => ds.id === rep.refDatasetId);
-          if (refDs && refDs.replicates.length > 0) {
-            const refKey = `${refDs.id}__0`;
-            const refBase = baseSeries.get(refKey);
-            if (refBase && refBase.t.length > 0) {
-              y = base.t.map((t, i) => base.y[i] - lerp(refBase.t, refBase.y, t));
+        if (rep.blankDatasetId && rep.blankDatasetId !== d.id) {
+          const blankDs = datasets.find((ds) => ds.id === rep.blankDatasetId);
+          if (blankDs && blankDs.replicates.length > 0) {
+            const blankCorrected = singleRefSeries.get(`${blankDs.id}__0`);
+            if (blankCorrected && blankCorrected.t.length > 0) {
+              y = corrected.t.map((t, i) => y[i] - lerp(blankCorrected.t, blankCorrected.y, t));
             }
           }
+        }
+
+        if (rep.normalizeBaseline && y.length > 0) {
+          const n5pct = Math.max(1, Math.floor(y.length * 0.05));
+          const slice = y.slice(0, n5pct);
+          const sorted = [...slice].sort((a, b) => a - b);
+          const mid = Math.floor(sorted.length / 2);
+          const median =
+            sorted.length % 2 === 0
+              ? (sorted[mid - 1] + sorted[mid]) / 2
+              : sorted[mid];
+          y = y.map((v) => v - median);
         }
 
         const label =
@@ -292,7 +347,7 @@ export function useFilesets(): UseFilesetsResult {
             ? `${d.label} · rep ${ri + 1}`
             : d.label;
 
-        result.push({ id: key, datasetId: d.id, replicateIndex: ri, t: base.t, y, label });
+        result.push({ id: key, datasetId: d.id, replicateIndex: ri, t: corrected.t, y, label });
       }
     }
 

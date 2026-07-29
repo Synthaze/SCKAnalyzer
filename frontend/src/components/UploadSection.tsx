@@ -1,8 +1,9 @@
-import React, { useRef, useState, useCallback } from "react";
+import React, { useRef, useState, useCallback, useMemo } from "react";
 import Plot from "react-plotly.js";
 import Plotly from "plotly.js-dist-min";
 import type { UseFilesetsResult } from "../hooks/useFilesets";
 import HelpTip from "./HelpTip";
+import { downloadText, downloadPlotPng } from "../lib/export";
 
 type Props = {
   filesets: UseFilesetsResult;
@@ -13,12 +14,33 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [mergeSelection, setMergeSelection] = useState<Set<string>>(new Set());
+  const plotDivRef = useRef<Plotly.PlotlyHTMLElement | null>(null);
 
   const {
     datasets, addFiles, removeDataset, updateDataset,
     updateReplicate, addReplicate, removeReplicate, mergeDatasets,
     computedSeries, primaryId, setPrimaryId, primaryDataset,
   } = filesets;
+
+  const activeSeries = computedSeries.find(
+    (s) => s.datasetId === (primaryId || primaryDataset?.id)
+  );
+
+  const sensorgramCsv = useMemo(() => {
+    if (!activeSeries || activeSeries.t.length === 0) return "";
+    const rows = activeSeries.t.map((tv, i) => `${tv},${activeSeries.y[i]}`);
+    return ["time_s,response_ru", ...rows].join("\n");
+  }, [activeSeries]);
+
+  const datasetCsv = useMemo(() => {
+    if (!primaryDataset?.parsed) return "";
+    const { columns, data, n_rows } = primaryDataset.parsed;
+    const lines = [columns.join(",")];
+    for (let i = 0; i < n_rows; i++) {
+      lines.push(columns.map((col) => data[col]?.[i] ?? "").join(","));
+    }
+    return lines.join("\n");
+  }, [primaryDataset]);
 
   const toggleMerge = useCallback((id: string) => {
     setMergeSelection((prev) => {
@@ -224,6 +246,30 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                     )}
                   </div>
 
+                  <div style={{ borderLeft: "1px solid rgba(255,255,255,0.12)", paddingLeft: 10, display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <span className="muted" style={{ fontSize: 11, alignSelf: "center" }}>−</span>
+                    <label style={{ fontSize: 12 }}>
+                      <span>Blank run (double-ref)<HelpTip text="Double referencing: subtracts another already-referenced run (typically a buffer/blank injection) from this trace, i.e. (this − ref) − (blank − blank's own ref). Give the blank dataset its own Ref. sensorgram above to fill in the blank_ref term; leave it unset for plain blank subtraction." /></span>
+                      <select
+                        value={rep.blankDatasetId}
+                        onChange={(e) => updateReplicate(ds.id, ri, { blankDatasetId: e.target.value })}
+                        style={{ padding: "4px 6px", fontSize: 12 }}
+                      >
+                        <option value="">—</option>
+                        {others.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                      </select>
+                    </label>
+                    {rep.blankDatasetId && (
+                      <button
+                        className="secondary"
+                        style={{ padding: "2px 8px", fontSize: 11 }}
+                        onClick={() => updateReplicate(ds.id, ri, { blankDatasetId: "" })}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
                   <label style={{ flexDirection: "row", alignItems: "center", gap: 4, fontSize: 12 }}>
                     <input
                       type="checkbox"
@@ -270,7 +316,20 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
             style={{ width: "100%", height: "380px" }}
             useResizeHandler
             config={{ responsive: true, displaylogo: false }}
+            onInitialized={(_: any, div: HTMLElement) => { plotDivRef.current = div as Plotly.PlotlyHTMLElement; }}
+            onUpdate={(_: any, div: HTMLElement) => { plotDivRef.current = div as Plotly.PlotlyHTMLElement; }}
           />
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="secondary"
+              onClick={() => downloadPlotPng(plotDivRef.current, "sckanalyzer-sensorgram.png")}>
+              Export PNG
+            </button>
+            <button className="secondary"
+              onClick={() => sensorgramCsv && downloadText("sckanalyzer-sensorgram.csv", sensorgramCsv)}
+              disabled={!sensorgramCsv}>
+              Export CSV
+            </button>
+          </div>
         </div>
       )}
 
@@ -281,12 +340,17 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
         const shown = Math.min(n_rows, MAX_ROWS);
         return (
           <div className="card">
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
               <span style={{ fontWeight: 600, fontSize: 14 }}>Data — {primaryDataset.label}</span>
               <span className="muted" style={{ fontSize: 12 }}>
                 {n_rows} rows · {columns.length} columns
                 {n_rows > MAX_ROWS && ` · showing first ${MAX_ROWS}`}
               </span>
+              <button className="secondary" style={{ marginLeft: "auto", padding: "4px 10px", fontSize: 12 }}
+                onClick={() => datasetCsv && downloadText("sckanalyzer-dataset.csv", datasetCsv)}
+                disabled={!datasetCsv}>
+                Export CSV
+              </button>
             </div>
             <div style={{ overflowX: "auto" }}>
               <div style={{ maxHeight: 320, overflowY: "auto" }}>

@@ -3,11 +3,7 @@ import Plot from "react-plotly.js";
 import Plotly from "plotly.js-dist-min";
 import { formatKD, formatConc } from "../lib/format";
 import { downloadText, downloadPlotPng } from "../lib/export";
-
-// ── Concentration unit multipliers ────────────────────
-const CONC_MULT: Record<string, number> = { pM: 1e-12, nM: 1e-9, "µM": 1e-6, mM: 1e-3, M: 1 };
-const CONC_UNITS = ["pM", "nM", "µM", "mM", "M"] as const;
-type ConcUnit = (typeof CONC_UNITS)[number];
+import { CONC_UNITS, CONC_MULT, type ConcUnit } from "../lib/units";
 
 // ── 1:1 Langmuir analytic simulation ─────────────────
 function simulate11(
@@ -64,10 +60,9 @@ function addGaussianNoise(y: number[], sigma: number, seed: number): number[] {
 type InjRow = { conc: string; assocTime: string; dissocTime: string };
 
 const PRESETS: Array<{ label: string; ka: string; kd: string; rmax: string }> = [
-  { label: "Strong (nM)",    ka: "5e5",  kd: "5e-4",  rmax: "100" },
-  { label: "Moderate (µM)", ka: "1e5",  kd: "1e-3",  rmax: "100" },
-  { label: "Weak (µM+)",    ka: "2e4",  kd: "5e-3",  rmax: "80"  },
-  { label: "Fast kd",       ka: "1e5",  kd: "0.05",  rmax: "100" },
+  { label: "Strong",   ka: "1e5", kd: "1e-4", rmax: "100" },
+  { label: "Moderate", ka: "1e3", kd: "1e-3", rmax: "100" },
+  { label: "Weak",     ka: "1e3", kd: "1e-2", rmax: "100" },
 ];
 
 export default function SimulateSection() {
@@ -206,14 +201,6 @@ export default function SimulateSection() {
     return [header, ...rows].join("\n");
   }, [tArr, yDisplay, yNoisy, yClean, noiseSigma]);
 
-  const stepsJson = useMemo(() => {
-    if (!steps.length) return "";
-    return JSON.stringify(
-      steps.map((s) => ({ start: +s.start.toFixed(3), stop: +s.stop.toFixed(3), C: s.C })),
-      null, 2
-    );
-  }, [steps]);
-
   const canSimulate = !!(ka && kd && rmax && steps.length > 0);
 
   return (
@@ -246,8 +233,8 @@ export default function SimulateSection() {
               style={{ borderColor: kd ? undefined : "var(--error)", fontFamily: "Source Code Pro, monospace" }} />
           </label>
           <label>
-            <span style={{ whiteSpace: "nowrap" }}>K<sub>D</sub></span>
-            <input type="text" readOnly value={KD ? formatKD(KD) : "—"}
+            <span style={{ whiteSpace: "nowrap" }}>K<sub>D</sub> (M)</span>
+            <input type="text" readOnly value={KD ? KD.toExponential(3) : "—"}
               style={{ background: "var(--surface)", cursor: "default", color: "var(--text-2)", fontFamily: "Source Code Pro, monospace" }} />
           </label>
           <label>
@@ -260,7 +247,7 @@ export default function SimulateSection() {
         {/* Derived info row */}
         {(KD || halfLife) && (
           <div className="row" style={{ marginTop: 10, gap: 18, flexWrap: "wrap" }}>
-            {KD && <span className="muted" style={{ fontSize: 12 }}>KD = {KD.toExponential(3)} M ({formatKD(KD)})</span>}
+            {KD && <span className="muted" style={{ fontSize: 12 }}>K<sub>D</sub> = {KD.toExponential(3)} M ({formatKD(KD)})</span>}
             {halfLife && Number.isFinite(halfLife) && <span className="muted" style={{ fontSize: 12 }}>t½ dissoc = {halfLife.toFixed(1)} s</span>}
           </div>
         )}
@@ -334,11 +321,11 @@ export default function SimulateSection() {
           <thead>
             <tr>
               <th style={{ width: 36 }}>#</th>
-              <th>Concentration ({concUnit})</th>
-              <th>Association (s)</th>
-              <th>Dissociation (s)</th>
-              <th>Timing (s)</th>
-              <th>Plateau (RU)</th>
+              <th>Concentration <span className="unit">({concUnit})</span></th>
+              <th>Association <span className="unit">(s)</span></th>
+              <th>Dissociation <span className="unit">(s)</span></th>
+              <th>Timing <span className="unit">(s)</span></th>
+              <th>Plateau <span className="unit">(RU)</span></th>
               <th></th>
             </tr>
           </thead>
@@ -389,12 +376,6 @@ export default function SimulateSection() {
           <button className="secondary" style={{ padding: "4px 12px", fontSize: 12 }} onClick={addInj}>
             + Add injection
           </button>
-          {stepsJson && (
-            <button className="secondary" style={{ padding: "4px 12px", fontSize: 12 }}
-              onClick={() => navigator.clipboard.writeText(stepsJson)}>
-              Copy steps JSON
-            </button>
-          )}
         </div>
       </div>
 
@@ -413,11 +394,11 @@ export default function SimulateSection() {
             />
             <div className="row" style={{ marginTop: 8 }}>
               <button className="secondary"
-                onClick={() => downloadPlotPng(plotDivRef.current, "simulation.png")}>
+                onClick={() => downloadPlotPng(plotDivRef.current, "sckanalyzer-simulation.png")}>
                 Export PNG
               </button>
               <button className="secondary"
-                onClick={() => csvContent && downloadText("simulation.csv", csvContent)}
+                onClick={() => csvContent && downloadText("sckanalyzer-simulation.csv", csvContent)}
                 disabled={!csvContent}>
                 Export CSV
               </button>

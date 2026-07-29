@@ -13,6 +13,17 @@ import HelpTip from "./HelpTip";
 const REP_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
 const repColor = (i: number) => REP_COLORS[i % REP_COLORS.length];
 
+// Renders known parameter labels with a proper subscript (ka -> k_a, KD -> K_D, ...).
+// Plain-text labels used elsewhere (CSV export) are untouched — this is display-only.
+const SUBSCRIPT_LABELS: Record<string, React.ReactNode> = {
+  ka: <>k<sub>a</sub></>,
+  kd: <>k<sub>d</sub></>,
+  kt: <>k<sub>t</sub></>,
+  KD: <>K<sub>D</sub></>,
+  Rmax: <>R<sub>max</sub></>,
+};
+const subscriptLabel = (label: string): React.ReactNode => SUBSCRIPT_LABELS[label] ?? label;
+
 type Props = {
   fitOptions: UseFitOptionsResult;
   runFit: () => void;
@@ -323,7 +334,7 @@ export default function FitResultsSection({
         <button onClick={runFit} className="primary" disabled={!canFit}>Run fit</button>
         <div className="row" style={{ gap: 4 }}>
           <button className={repFitMode === "per_rep" ? "primary" : "secondary"} style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setRepFitMode("per_rep")}>Per replicate<HelpTip text="Each replicate is fitted independently. Results are shown per replicate and summarised as Mean ± SD." /></button>
-          <button className={repFitMode === "global" ? "primary" : "secondary"} style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setRepFitMode("global")}>Global (shared ka/kd)<HelpTip text="A single ka and kd is fitted simultaneously across all replicates, with each replicate having its own Rmax. Produces more constrained, statistically robust rate estimates." /></button>
+          <button className={repFitMode === "global" ? "primary" : "secondary"} style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setRepFitMode("global")}>Global (shared {subscriptLabel("ka")}/{subscriptLabel("kd")}/{subscriptLabel("Rmax")})<HelpTip text="A single ka, kd, and Rmax are fitted simultaneously across all replicates; only drift and bulk offsets (if enabled) are fitted per replicate. Produces more constrained, statistically robust rate estimates." /></button>
         </div>
         <span className="muted">{stepsStatus || "Ready to fit once steps are defined."}</span>
       </div>
@@ -498,7 +509,7 @@ export default function FitResultsSection({
                       {specs.map(p => (
                         <React.Fragment key={p.key}>
                           <th style={{ whiteSpace: "nowrap", textTransform: "none" }}>
-                            {p.label}
+                            {subscriptLabel(p.label)}
                             {p.helpText && <HelpTip text={p.helpText} />}
                             <span className="unit" style={{ fontWeight: 400, marginLeft: 4 }}>({p.unit})</span>
                           </th>
@@ -560,7 +571,7 @@ export default function FitResultsSection({
                   <tbody>
                     {rows.map(r => (
                       <tr key={r.label}>
-                        <th style={{ textTransform: "none" }}>{r.label}</th>
+                        <th style={{ textTransform: "none" }}>{subscriptLabel(r.label)}</th>
                         <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{r.mean ?? "—"}</td>
                         <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{r.sd ?? "—"}</td>
                         <td className="unit" style={{ textAlign: "left" }}>{r.unit}</td>
@@ -572,44 +583,88 @@ export default function FitResultsSection({
             );
           })()}
 
-          {/* Fit quality */}
-          <div style={{ marginTop: 16, overflowX: "auto" }}>
-            <div className="muted" style={{ marginBottom: 6 }}>Fit quality</div>
-            {fits.length > 0 && (() => {
-              return (
-                <table className="result-table" style={{ width: "auto" }}>
-                  <thead>
-                    <tr>
-                      <th></th>
-                      <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>RMSE <span className="unit" style={{ fontWeight: 400 }}>(RU)</span><HelpTip text="Root Mean Square Error between data and model fit (RU). Lower is better; compare across replicates to detect outliers." /></th>
-                      <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>R²<HelpTip text="Coefficient of determination. Values close to 1 indicate a good fit. Can be misleading for non-linear models — inspect residuals too." /></th>
-                      <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>Durbin-Watson<HelpTip text="Tests for autocorrelation in residuals. Values near 2 = no autocorrelation (good). Values far from 2 suggest systematic misfits or a wrong model." /></th>
-                      <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>N points</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fits.map((f, ri) => (
-                      <tr key={ri}>
-                        <th style={fits.length > 1 ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
-                          {fits.length > 1 ? `Rep ${ri + 1}` : "Value"}
-                        </th>
-                        <td className="mono" style={{ fontSize: 12 }}>{f.fit_quality.rmse.toFixed(4)}</td>
-                        <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.r2) ? f.fit_quality.r2.toFixed(4) : "—"}</td>
-                        <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.dw) ? f.fit_quality.dw.toFixed(3) : "—"}</td>
-                        <td className="mono" style={{ fontSize: 12 }}>{Math.round(f.fit_quality.n_points)}</td>
+          <div style={{ marginTop: 16, display: "flex", gap: 24, flexWrap: "wrap" }}>
+            {/* Fit quality */}
+            <div style={{ overflowX: "auto" }}>
+              <div className="muted" style={{ marginBottom: 6 }}>Fit quality</div>
+              {fits.length > 0 && (() => {
+                return (
+                  <table className="result-table" style={{ width: "auto" }}>
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>RMSE <span className="unit" style={{ fontWeight: 400 }}>(RU)</span><HelpTip text="Root Mean Square Error between data and model fit (RU). Lower is better; compare across replicates to detect outliers." /></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>R²<HelpTip text="Coefficient of determination. Values close to 1 indicate a good fit. Can be misleading for non-linear models — inspect residuals too." /></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>Durbin-Watson<HelpTip text="Tests for autocorrelation in residuals. Values near 2 = no autocorrelation (good). Values far from 2 suggest systematic misfits or a wrong model." /></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>N points</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {fits.map((f, ri) => (
+                        <tr key={ri}>
+                          <th style={fits.length > 1 ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
+                            {fits.length > 1 ? `Rep ${ri + 1}` : "Value"}
+                          </th>
+                          <td className="mono" style={{ fontSize: 12 }}>{f.fit_quality.rmse.toFixed(4)}</td>
+                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.r2) ? f.fit_quality.r2.toFixed(4) : "—"}</td>
+                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.dw) ? f.fit_quality.dw.toFixed(3) : "—"}</td>
+                          <td className="mono" style={{ fontSize: 12 }}>{Math.round(f.fit_quality.n_points)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              })()}
+              {fits.some(f => f.warnings && f.warnings.length > 0) && (
+                <div className="muted" style={{ marginTop: 8 }}>
+                  {fits.flatMap((f, ri) => (f.warnings ?? []).map((w, wi) => (
+                    <div key={`${ri}-${wi}`}>{hasMultiRep ? `Rep ${ri + 1}: ` : ""}⚠ {w}</div>
+                  )))}
+                </div>
+              )}
+            </div>
+
+            {/* Bulk offsets */}
+            {fits.some(f => (f.params.bulk_offsets_RU?.length ?? 0) > 0) && (() => {
+              const maxBulkCount = Math.max(0, ...fits.map(f => f.params.bulk_offsets_RU?.length ?? 0));
+              return (
+                <div style={{ overflowX: "auto" }}>
+                  <div className="muted" style={{ marginBottom: 6 }}>
+                    Bulk offsets
+                    <HelpTip text="Per-injection baseline offset fitted to account for bulk refractive index shifts at each injection transition." />
+                  </div>
+                  <table className="result-table" style={{ width: "auto" }}>
+                    <thead>
+                      <tr>
+                        <th></th>
+                        {Array.from({ length: maxBulkCount }, (_, idx) => (
+                          <th key={idx} style={{ textTransform: "none", whiteSpace: "nowrap" }}>
+                            Inj {idx + 1} <span className="unit">(RU)</span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fits.map((f, ri) => (
+                        <tr key={ri}>
+                          <th style={fits.length > 1 ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
+                            {fits.length > 1 ? `Rep ${ri + 1}` : "Value"}
+                          </th>
+                          {Array.from({ length: maxBulkCount }, (_, idx) => {
+                            const v = f.params.bulk_offsets_RU?.[idx];
+                            return (
+                              <td key={idx} className="mono" style={{ fontSize: 12 }}>
+                                {v !== undefined ? v.toFixed(3) : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               );
             })()}
-            {fits.some(f => f.warnings && f.warnings.length > 0) && (
-              <div className="muted" style={{ marginTop: 8 }}>
-                {fits.flatMap((f, ri) => (f.warnings ?? []).map((w, wi) => (
-                  <div key={`${ri}-${wi}`}>{hasMultiRep ? `Rep ${ri + 1}: ` : ""}⚠ {w}</div>
-                )))}
-              </div>
-            )}
           </div>
 
         {fits.some(f => f.bootstrap && f.bootstrap.n > 0) && (
@@ -623,7 +678,7 @@ export default function FitResultsSection({
           </div>
         )}
         <div className="row" style={{ marginTop: 8 }}>
-          <button className="secondary" onClick={() => allParamsCsv && downloadText("fit_parameters.csv", allParamsCsv)} disabled={!allParamsCsv}>Export parameters CSV</button>
+          <button className="secondary" onClick={() => allParamsCsv && downloadText("sckanalyzer-parameters.csv", allParamsCsv)} disabled={!allParamsCsv}>Export CSV</button>
         </div>
       </div>
     )}
@@ -634,7 +689,7 @@ export default function FitResultsSection({
           <div className="plots">
             <Plot
               data={combinedFitData}
-              layout={{ ...fitLayout, title: { text: hasMultiRep ? (isGlobalFit ? "Global Fit (shared ka/kd) — all replicates" : "Per-replicate fits") : "Fit (Data + Model)", font: { color: "#1c1916", size: 14 } } } as any}
+              layout={{ ...fitLayout, title: { text: hasMultiRep ? (isGlobalFit ? "Global Fit (shared k<sub>a</sub>/k<sub>d</sub>/R<sub>max</sub>) — all replicates" : "Per-replicate fits") : "Fit (Data + Model)", font: { color: "#1c1916", size: 14 } } } as any}
               style={{ width: "100%", height: "380px" }}
               useResizeHandler
               config={{ responsive: true, displaylogo: false }}
@@ -642,8 +697,8 @@ export default function FitResultsSection({
               onUpdate={(_: any, div: HTMLElement) => { fitDivRef.current = div as Plotly.PlotlyHTMLElement; }}
             />
             <div className="row">
-              <button className="secondary" onClick={() => downloadPlotPng(fitDivRef.current, "plot_fit.png")}>Export fit PNG</button>
-              <button className="secondary" onClick={() => allFitCsv && downloadText("plot_fit.csv", allFitCsv)} disabled={!allFitCsv}>Export fit CSV</button>
+              <button className="secondary" onClick={() => downloadPlotPng(fitDivRef.current, "sckanalyzer-fit.png")}>Export PNG</button>
+              <button className="secondary" onClick={() => allFitCsv && downloadText("sckanalyzer-fit.csv", allFitCsv)} disabled={!allFitCsv}>Export CSV</button>
             </div>
             <Plot
               data={combinedResidData}
@@ -655,8 +710,8 @@ export default function FitResultsSection({
               onUpdate={(_: any, div: HTMLElement) => { residDivRef.current = div as Plotly.PlotlyHTMLElement; }}
             />
             <div className="row">
-              <button className="secondary" onClick={() => downloadPlotPng(residDivRef.current, "plot_residual.png")}>Export residual PNG</button>
-              <button className="secondary" onClick={() => allResidCsv && downloadText("plot_residual.csv", allResidCsv)} disabled={!allResidCsv}>Export residual CSV</button>
+              <button className="secondary" onClick={() => downloadPlotPng(residDivRef.current, "sckanalyzer-residuals.png")}>Export PNG</button>
+              <button className="secondary" onClick={() => allResidCsv && downloadText("sckanalyzer-residuals.csv", allResidCsv)} disabled={!allResidCsv}>Export CSV</button>
             </div>
           </div>
 
@@ -701,8 +756,8 @@ export default function FitResultsSection({
                   onUpdate={(_: any, div: HTMLElement) => { overlapAssocDivRef.current = div as Plotly.PlotlyHTMLElement; }}
                 />
                 <div className="row">
-                  <button className="secondary" onClick={() => downloadPlotPng(overlapAssocDivRef.current, "overlap_assoc.png")}>Export assoc PNG</button>
-                  <button className="secondary" onClick={() => overlapSeries && downloadText("overlap_assoc.csv", buildOverlapPhaseCsv("assoc", overlapSeries.assoc, overlapNormalize, overlapBaseline))} disabled={!overlapSeries}>Export assoc CSV</button>
+                  <button className="secondary" onClick={() => downloadPlotPng(overlapAssocDivRef.current, "sckanalyzer-overlap-assoc.png")}>Export PNG</button>
+                  <button className="secondary" onClick={() => overlapSeries && downloadText("sckanalyzer-overlap-assoc.csv", buildOverlapPhaseCsv("assoc", overlapSeries.assoc, overlapNormalize, overlapBaseline))} disabled={!overlapSeries}>Export CSV</button>
                 </div>
               </>
             )}
@@ -718,8 +773,8 @@ export default function FitResultsSection({
                   onUpdate={(_: any, div: HTMLElement) => { overlapDissDivRef.current = div as Plotly.PlotlyHTMLElement; }}
                 />
                 <div className="row">
-                  <button className="secondary" onClick={() => downloadPlotPng(overlapDissDivRef.current, "overlap_dissoc.png")}>Export dissoc PNG</button>
-                  <button className="secondary" onClick={() => overlapSeries && downloadText("overlap_dissoc.csv", buildOverlapPhaseCsv("dissoc", overlapSeries.dissoc, overlapNormalize, overlapBaseline))} disabled={!overlapSeries}>Export dissoc CSV</button>
+                  <button className="secondary" onClick={() => downloadPlotPng(overlapDissDivRef.current, "sckanalyzer-overlap-dissoc.png")}>Export PNG</button>
+                  <button className="secondary" onClick={() => overlapSeries && downloadText("sckanalyzer-overlap-dissoc.csv", buildOverlapPhaseCsv("dissoc", overlapSeries.dissoc, overlapNormalize, overlapBaseline))} disabled={!overlapSeries}>Export CSV</button>
                 </div>
               </>
             )}
@@ -751,7 +806,7 @@ export default function FitResultsSection({
                 if (manifest.length) add("manifest.txt", manifest.join("\n"));
                 const blob = await zip.generateAsync({ type: "blob" });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement("a"); a.href = url; a.download = "spr_sck_exports.zip"; a.click();
+                const a = document.createElement("a"); a.href = url; a.download = "sckanalyzer-exports.zip"; a.click();
                 URL.revokeObjectURL(url);
               }}
             >
