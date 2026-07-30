@@ -34,7 +34,13 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
 
   const datasetCsv = useMemo(() => {
     if (!primaryDataset?.parsed) return "";
-    const { columns, data, n_rows } = primaryDataset.parsed;
+    const { data, n_rows } = primaryDataset.parsed;
+    const selectedCols = new Set<string>();
+    primaryDataset.replicates.forEach((r) => {
+      if (r.xCol) selectedCols.add(r.xCol);
+      if (r.yCol) selectedCols.add(r.yCol);
+    });
+    const columns = primaryDataset.parsed.columns.filter((c) => selectedCols.has(c));
     const lines = [columns.join(",")];
     for (let i = 0; i < n_rows; i++) {
       lines.push(columns.map((col) => data[col]?.[i] ?? "").join(","));
@@ -83,8 +89,22 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
     })),
   };
 
-  const otherParsedDatasets = (excludeId: string) =>
-    datasets.filter((d) => d.id !== excludeId && d.parsed && d.replicates.length > 0);
+  // Lists every replicate across all parsed datasets (including other
+  // replicates of the *same* dataset), excluding only the one replicate
+  // currently being configured — so a specific reference/blank replicate
+  // can be chosen unambiguously, not just its parent dataset.
+  const replicateOptions = (excludeDatasetId: string, excludeReplicateIndex: number) => {
+    const opts: Array<{ key: string; label: string }> = [];
+    for (const d of datasets) {
+      if (!d.parsed || d.replicates.length === 0) continue;
+      d.replicates.forEach((_, ri) => {
+        if (d.id === excludeDatasetId && ri === excludeReplicateIndex) return;
+        const label = d.replicates.length > 1 ? `${d.label} · Series ${ri + 1}` : d.label;
+        opts.push({ key: `${d.id}__${ri}`, label });
+      });
+    }
+    return opts;
+  };
 
   return (
     <div>
@@ -119,25 +139,9 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
           </div>
         </div>
 
-        {mergeSelection.size >= 2 && (
-          <div style={{ marginTop: 10 }}>
-            <button
-              className="secondary"
-              style={{ padding: "5px 12px", fontSize: 12 }}
-              onClick={() => {
-                mergeDatasets([...mergeSelection]);
-                setMergeSelection(new Set());
-              }}
-            >
-              Merge {mergeSelection.size} files into one dataset
-            </button>
-          </div>
-        )}
-
         {datasets.map((ds) => {
           const isPrimary = ds.id === (primaryId || primaryDataset?.id);
           const cols = ds.parsed?.columns ?? [];
-          const others = otherParsedDatasets(ds.id);
           const showMergeCheck = datasets.length >= 2;
 
           return (
@@ -166,12 +170,14 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                   style={{ marginLeft: "auto", padding: "4px 10px", fontSize: 12 }}
                   onClick={() => removeDataset(ds.id)}
                 >
-                  Remove
+                  Remove dataset
                 </button>
               </div>
 
               {/* Replicates */}
-              {cols.length > 0 && ds.replicates.map((rep, ri) => (
+              {cols.length > 0 && ds.replicates.map((rep, ri) => {
+                const others = replicateOptions(ds.id, ri);
+                return (
                 <div
                   key={ri}
                   style={{
@@ -184,8 +190,8 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                     alignItems: "flex-end",
                   }}
                 >
-                  <span className="muted" style={{ fontSize: 11, alignSelf: "center", minWidth: 48 }}>
-                    rep {ri + 1}
+                  <span className="muted" style={{ fontSize: 11, alignSelf: "flex-end", minWidth: 48 }}>
+                    Series {ri + 1}
                   </span>
 
                   <label style={{ fontSize: 12 }}>
@@ -193,7 +199,7 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                     <select
                       value={rep.xCol}
                       onChange={(e) => updateReplicate(ds.id, ri, { xCol: e.target.value })}
-                      style={{ padding: "4px 6px", fontSize: 12 }}
+                      style={{ padding: "4px 6px", fontSize: 12, minWidth: 120 }}
                     >
                       {cols.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
@@ -204,42 +210,30 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                     <select
                       value={rep.yCol}
                       onChange={(e) => updateReplicate(ds.id, ri, { yCol: e.target.value })}
-                      style={{ padding: "4px 6px", fontSize: 12 }}
+                      style={{ padding: "4px 6px", fontSize: 12, minWidth: 120 }}
                     >
-                      {cols.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </label>
-
-                  <label style={{ fontSize: 12 }}>
-                    <span>Conc (Z)<HelpTip text="Optional column with analyte concentration (M). Used to auto-detect injection steps from concentration changes." /></span>
-                    <select
-                      value={rep.concCol}
-                      onChange={(e) => updateReplicate(ds.id, ri, { concCol: e.target.value })}
-                      style={{ padding: "4px 6px", fontSize: 12 }}
-                    >
-                      <option value="">—</option>
                       {cols.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </label>
 
                   <div style={{ borderLeft: "1px solid rgba(255,255,255,0.12)", paddingLeft: 10, display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap" }}>
-                    <span className="muted" style={{ fontSize: 11, alignSelf: "center" }}>Y = Y −</span>
+                    <span className="muted" style={{ fontSize: 11, alignSelf: "flex-end" }}>Y = Y −</span>
                     <label style={{ fontSize: 12 }}>
                       <span>Ref. sensorgram<HelpTip text="Double-reference subtraction: subtracts a reference channel (blank flow cell) to remove non-specific binding and bulk refractive index shifts." /></span>
                       <select
-                        value={rep.refDatasetId}
-                        onChange={(e) => updateReplicate(ds.id, ri, { refDatasetId: e.target.value })}
-                        style={{ padding: "4px 6px", fontSize: 12 }}
+                        value={rep.refReplicateKey}
+                        onChange={(e) => updateReplicate(ds.id, ri, { refReplicateKey: e.target.value })}
+                        style={{ padding: "4px 6px", fontSize: 12, width: 140 }}
                       >
                         <option value="">—</option>
-                        {others.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                        {others.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
                       </select>
                     </label>
-                    {rep.refDatasetId && (
+                    {rep.refReplicateKey && (
                       <button
                         className="secondary"
                         style={{ padding: "2px 8px", fontSize: 11 }}
-                        onClick={() => updateReplicate(ds.id, ri, { refDatasetId: "" })}
+                        onClick={() => updateReplicate(ds.id, ri, { refReplicateKey: "" })}
                       >
                         ×
                       </button>
@@ -247,23 +241,23 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                   </div>
 
                   <div style={{ borderLeft: "1px solid rgba(255,255,255,0.12)", paddingLeft: 10, display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap" }}>
-                    <span className="muted" style={{ fontSize: 11, alignSelf: "center" }}>−</span>
+                    <span className="muted" style={{ fontSize: 11, alignSelf: "flex-end" }}>−</span>
                     <label style={{ fontSize: 12 }}>
                       <span>Blank run (double-ref)<HelpTip text="Double referencing: subtracts another already-referenced run (typically a buffer/blank injection) from this trace, i.e. (this − ref) − (blank − blank's own ref). Give the blank dataset its own Ref. sensorgram above to fill in the blank_ref term; leave it unset for plain blank subtraction." /></span>
                       <select
-                        value={rep.blankDatasetId}
-                        onChange={(e) => updateReplicate(ds.id, ri, { blankDatasetId: e.target.value })}
-                        style={{ padding: "4px 6px", fontSize: 12 }}
+                        value={rep.blankReplicateKey}
+                        onChange={(e) => updateReplicate(ds.id, ri, { blankReplicateKey: e.target.value })}
+                        style={{ padding: "4px 6px", fontSize: 12, width: 140 }}
                       >
                         <option value="">—</option>
-                        {others.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                        {others.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
                       </select>
                     </label>
-                    {rep.blankDatasetId && (
+                    {rep.blankReplicateKey && (
                       <button
                         className="secondary"
                         style={{ padding: "2px 8px", fontSize: 11 }}
-                        onClick={() => updateReplicate(ds.id, ri, { blankDatasetId: "" })}
+                        onClick={() => updateReplicate(ds.id, ri, { blankReplicateKey: "" })}
                       >
                         ×
                       </button>
@@ -285,26 +279,41 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                       style={{ padding: "2px 8px", fontSize: 11 }}
                       onClick={() => removeReplicate(ds.id, ri)}
                     >
-                      Remove replicate
+                      Remove series
                     </button>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {cols.length > 0 && (
-                <div style={{ marginTop: 8 }}>
+                <div style={{ marginTop: 16 }}>
                   <button
                     className="secondary"
                     style={{ padding: "4px 10px", fontSize: 12 }}
                     onClick={() => addReplicate(ds.id)}
                   >
-                    + Add replicate
+                    + Add series
                   </button>
                 </div>
               )}
             </div>
           );
         })}
+
+        <div style={{ marginTop: 14 }}>
+          <button
+            className="primary"
+            style={{ padding: "6px 14px", fontSize: 12 }}
+            disabled={mergeSelection.size < 2}
+            onClick={() => {
+              mergeDatasets([...mergeSelection]);
+              setMergeSelection(new Set());
+            }}
+          >
+            {mergeSelection.size >= 2 ? `Merge ${mergeSelection.size} datasets as new` : "Merge datasets as new"}
+          </button>
+        </div>
       </div>
 
       {/* Preview plot */}
@@ -335,7 +344,13 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
 
       {/* Data table for primary dataset */}
       {primaryDataset?.parsed && (() => {
-        const { columns, data, n_rows } = primaryDataset.parsed;
+        const { data, n_rows } = primaryDataset.parsed;
+        const selectedCols = new Set<string>();
+        primaryDataset.replicates.forEach((r) => {
+          if (r.xCol) selectedCols.add(r.xCol);
+          if (r.yCol) selectedCols.add(r.yCol);
+        });
+        const columns = primaryDataset.parsed.columns.filter((c) => selectedCols.has(c));
         const MAX_ROWS = 500;
         const shown = Math.min(n_rows, MAX_ROWS);
         return (
@@ -368,11 +383,11 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                   <tbody>
                     {Array.from({ length: shown }, (_, i) => (
                       <tr key={i}>
-                        <td className="muted" style={{ padding: "2px 8px", textAlign: "right" }}>{i + 1}</td>
+                        <td className="muted" style={{ padding: "2px 8px", textAlign: "left" }}>{i + 1}</td>
                         {columns.map((col) => {
                           const v = data[col]?.[i];
                           return (
-                            <td key={col} style={{ padding: "2px 8px", textAlign: "right", whiteSpace: "nowrap" }}>
+                            <td key={col} style={{ padding: "2px 8px", textAlign: "left", whiteSpace: "nowrap" }}>
                               {v == null ? <span className="muted">—</span> : typeof v === "number" ? v.toPrecision(6) : String(v)}
                             </td>
                           );

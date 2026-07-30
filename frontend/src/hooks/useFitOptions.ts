@@ -7,8 +7,10 @@ export type ExcludeRow = { start: string; stop: string };
 export type UseFitOptionsResult = {
   repFitMode: "per_rep" | "global";
   setRepFitMode: (v: "per_rep" | "global") => void;
-  enableDrift: boolean;
-  setEnableDrift: (v: boolean) => void;
+  shareRmax: boolean;
+  setShareRmax: (v: boolean) => void;
+  shareBulk: boolean;
+  setShareBulk: (v: boolean) => void;
   enableBulk: boolean;
   setEnableBulk: (v: boolean) => void;
   robustLoss: "soft_l1" | "linear" | "huber";
@@ -21,24 +23,18 @@ export type UseFitOptionsResult = {
   setFitKd: (v: boolean) => void;
   fitRmax: boolean;
   setFitRmax: (v: boolean) => void;
-  fitDrift: boolean;
-  setFitDrift: (v: boolean) => void;
   kaBounds: BoundsPair;
   setKaBounds: (v: BoundsPair) => void;
   kdBounds: BoundsPair;
   setKdBounds: (v: BoundsPair) => void;
   rmaxBounds: BoundsPair;
   setRmaxBounds: (v: BoundsPair) => void;
-  driftBounds: BoundsPair;
-  setDriftBounds: (v: BoundsPair) => void;
   kaFixed: string;
   setKaFixed: (v: string) => void;
   kdFixed: string;
   setKdFixed: (v: string) => void;
   rmaxFixed: string;
   setRmaxFixed: (v: string) => void;
-  driftFixed: string;
-  setDriftFixed: (v: string) => void;
   bootstrapN: number;
   setBootstrapN: (v: number) => void;
   bootstrapSeed: string;
@@ -52,22 +48,20 @@ export type UseFitOptionsResult = {
 
 export function useFitOptions(): UseFitOptionsResult {
   const [repFitMode, setRepFitMode] = useState<"per_rep" | "global">("per_rep");
-  const [enableDrift, setEnableDrift] = useState<boolean>(false);
+  const [shareRmax, setShareRmax] = useState<boolean>(true);
+  const [shareBulk, setShareBulk] = useState<boolean>(true);
   const [enableBulk, setEnableBulk] = useState<boolean>(true);
   const [robustLoss, setRobustLoss] = useState<"soft_l1" | "linear" | "huber">("soft_l1");
   const [baselineMode, setBaselineMode] = useState<"pre_first_inj" | "none">("pre_first_inj");
   const [fitKa, setFitKa] = useState(true);
   const [fitKd, setFitKd] = useState(true);
   const [fitRmax, setFitRmax] = useState(true);
-  const [fitDrift, setFitDrift] = useState(true);
   const [kaBounds, setKaBounds] = useState<BoundsPair>({ min: "", max: "" });
   const [kdBounds, setKdBounds] = useState<BoundsPair>({ min: "", max: "" });
   const [rmaxBounds, setRmaxBounds] = useState<BoundsPair>({ min: "", max: "" });
-  const [driftBounds, setDriftBounds] = useState<BoundsPair>({ min: "", max: "" });
   const [kaFixed, setKaFixed] = useState<string>("1e5");
   const [kdFixed, setKdFixed] = useState<string>("1e-3");
   const [rmaxFixed, setRmaxFixed] = useState<string>("100");
-  const [driftFixed, setDriftFixed] = useState<string>("0");
   const [bootstrapN, setBootstrapN] = useState<number>(0);
   const [bootstrapSeed, setBootstrapSeed] = useState<string>("");
   const [excludeRows, setExcludeRows] = useState<ExcludeRow[]>([]);
@@ -88,7 +82,7 @@ export function useFitOptions(): UseFitOptionsResult {
     const valid = excludeRows.filter((r) => {
       const s = Number(r.start);
       const e = Number(r.stop);
-      return Number.isFinite(s) && Number.isFinite(e) && r.start.trim() !== "" && r.stop.trim() !== "";
+      return Number.isFinite(s) && Number.isFinite(e) && r.start.trim() !== "" && r.stop.trim() !== "" && e > s;
     });
     if (!valid.length) return "";
     return JSON.stringify(valid.map((r) => ({ start: Number(r.start), stop: Number(r.stop) })));
@@ -97,8 +91,10 @@ export function useFitOptions(): UseFitOptionsResult {
   return {
     repFitMode,
     setRepFitMode,
-    enableDrift,
-    setEnableDrift,
+    shareRmax,
+    setShareRmax,
+    shareBulk,
+    setShareBulk,
     enableBulk,
     setEnableBulk,
     robustLoss,
@@ -111,24 +107,18 @@ export function useFitOptions(): UseFitOptionsResult {
     setFitKd,
     fitRmax,
     setFitRmax,
-    fitDrift,
-    setFitDrift,
     kaBounds,
     setKaBounds,
     kdBounds,
     setKdBounds,
     rmaxBounds,
     setRmaxBounds,
-    driftBounds,
-    setDriftBounds,
     kaFixed,
     setKaFixed,
     kdFixed,
     setKdFixed,
     rmaxFixed,
     setRmaxFixed,
-    driftFixed,
-    setDriftFixed,
     bootstrapN,
     setBootstrapN,
     bootstrapSeed,

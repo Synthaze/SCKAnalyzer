@@ -5,6 +5,7 @@ import type { UseStepsResult } from "../hooks/useSteps";
 import type { ExcludeRow } from "../hooks/useFitOptions";
 import HelpTip from "./HelpTip";
 import { CONC_UNITS, CONC_MULT, type ConcUnit } from "../lib/units";
+import { roundDecimals } from "../lib/format";
 
 type Props = {
   steps: UseStepsResult;
@@ -93,7 +94,7 @@ export default function SckParamsSection({
       {/* Injection steps card */}
       <div className="card">
         <div style={{ display: "flex", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-          <h3 style={{ margin: 0, flex: 1 }}>Injection steps<HelpTip text="Time windows where analyte is injected. Each step defines a start time, stop time, and concentration. Association kinetics are fitted within these windows; dissociation follows each stop time." /></h3>
+          <h3 style={{ margin: 0, flex: 1 }}>Define injection steps<HelpTip text="Time windows where analyte is injected. Each step defines a start time, stop time, and concentration. Association kinetics are fitted within these windows; dissociation follows each stop time." /></h3>
           <label style={{ flexDirection: "row", alignItems: "center", gap: 6, fontSize: 12 }}>
             Unit
             <select value={concUnit} onChange={(e) => setConcUnit(e.target.value as ConcUnit)}
@@ -134,11 +135,6 @@ export default function SckParamsSection({
                   ? (cursorTimes.length % 2 === 0 ? "Click to place start…" : "Click to place end…")
                   : "Add injection marker"}
               </button>
-              {cursorTimes.length > 0 && (
-                <button className="secondary" onClick={() => setCursorTimes([])}>
-                  Clear markers
-                </button>
-              )}
               <button
                 className="secondary"
                 disabled={cursorTimes.length < 2}
@@ -149,6 +145,11 @@ export default function SckParamsSection({
               >
                 Create steps from markers
               </button>
+              {cursorTimes.length > 0 && (
+                <button className="secondary" onClick={() => setCursorTimes([])}>
+                  Clear markers
+                </button>
+              )}
               {cursorTimes.length < 2 && (
                 <span className="muted" style={{ fontSize: 12, alignSelf: "center" }}>
                   ({cursorTimes.length} marker{cursorTimes.length !== 1 ? "s" : ""} — need at least 2)
@@ -211,31 +212,46 @@ export default function SckParamsSection({
             <div className="grid">
               <label>
                 <span>Injection start time (s)<HelpTip text="Time at which the first injection begins (seconds from the start of the trace)." /></span>
-                <input type="number" value={injStart} onChange={(e) => setInjStart(Number(e.target.value))} step="1" />
+                <input type="text" inputMode="decimal" defaultValue={injStart}
+                  onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setInjStart(v); }} />
               </label>
               <label>
                 <span>Injection duration (s)<HelpTip text="Duration of each injection window (seconds). All injections share the same duration." /></span>
-                <input type="number" value={injDur} onChange={(e) => setInjDur(Number(e.target.value))} step="1" min="0" />
+                <input type="text" inputMode="decimal" defaultValue={injDur}
+                  onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setInjDur(v); }} />
               </label>
               <label>
                 <span>Gap between injections (s)<HelpTip text="Dissociation time between consecutive injections (seconds). The analyte is washed off for this duration before the next injection." /></span>
-                <input type="number" value={gapDur} onChange={(e) => setGapDur(Number(e.target.value))} step="1" min="0" />
+                <input type="text" inputMode="decimal" defaultValue={gapDur}
+                  onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setGapDur(v); }} />
               </label>
               <label>
                 <span>Number of injections<HelpTip text="Total number of injections in the dilution series." /></span>
-                <input type="number" value={nInj} onChange={(e) => setNInj(Number(e.target.value))} step="1" min="1" />
+                <input type="text" inputMode="decimal" defaultValue={nInj}
+                  onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setNInj(v); }} />
               </label>
               <label>
-                <span>Final concentration (M)<HelpTip text="Highest analyte concentration in the series (M). Preceding injections are computed by successively dividing by the dilution factor." /></span>
-                <input type="number" value={cFinal} onChange={(e) => setCFinal(Number(e.target.value))} step="any" />
+                <span>Final concentration <span className="unit">({concUnit})</span><HelpTip text="Highest analyte concentration in the series, shown in the unit selected above (stored internally in molar). Preceding injections are computed by successively dividing by the dilution factor." /></span>
+                <input
+                  key={`cFinal-${concUnit}`}
+                  type="text"
+                  inputMode="decimal"
+                  defaultValue={roundDecimals(cFinal / CONC_MULT[concUnit])}
+                  onBlur={(e) => {
+                    const v = Number(e.target.value);
+                    if (Number.isFinite(v)) setCFinal(v * CONC_MULT[concUnit]);
+                  }}
+                />
               </label>
               <label>
                 <span>Dilution factor<HelpTip text="Each step is this many times less concentrated than the next (e.g. 2 = 2-fold serial dilution)." /></span>
-                <input type="number" value={dilFactor} onChange={(e) => setDilFactor(Number(e.target.value))} step="0.1" min="1" />
+                <input type="text" inputMode="decimal" defaultValue={dilFactor}
+                  onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setDilFactor(v); }} />
               </label>
               <label>
                 <span>Final dissociation (s)<HelpTip text="Duration of the dissociation window appended after the last injection (seconds)." /></span>
-                <input type="number" value={dissDur} onChange={(e) => setDissDur(Number(e.target.value))} step="1" min="0" />
+                <input type="text" inputMode="decimal" defaultValue={dissDur}
+                  onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setDissDur(v); }} />
               </label>
             </div>
             <div style={{ marginTop: 10 }}>
@@ -273,14 +289,28 @@ export default function SckParamsSection({
             ) : (
               stepsTable.map((s, i) => (
                 <tr key={`step-${i}`}>
-                  <td><input type="number" value={s.start} onChange={(e) => updateStep(i, "start", Number(e.target.value))} step="0.1" /></td>
-                  <td><input type="number" value={s.stop} onChange={(e) => updateStep(i, "stop", Number(e.target.value))} step="0.1" /></td>
+                  <td>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      defaultValue={roundDecimals(s.start)}
+                      onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateStep(i, "start", v); }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      defaultValue={roundDecimals(s.stop)}
+                      onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) updateStep(i, "stop", v); }}
+                    />
+                  </td>
                   <td>
                     <input
                       key={`C-${i}-${concUnit}`}
                       type="text"
                       inputMode="decimal"
-                      defaultValue={s.C / CONC_MULT[concUnit]}
+                      defaultValue={roundDecimals(s.C / CONC_MULT[concUnit])}
                       onBlur={(e) => {
                         const v = Number(e.target.value);
                         if (Number.isFinite(v)) updateStep(i, "C", v * CONC_MULT[concUnit]);
@@ -354,7 +384,7 @@ export default function SckParamsSection({
             } as any}
             style={{ width: "100%", height: "300px" }}
             useResizeHandler
-            config={{ responsive: true, displaylogo: false, editable: cursorTimes.length > 0 }}
+            config={{ responsive: true, displaylogo: false, edits: { shapePosition: cursorTimes.length > 0 } }}
             onClick={handlePlotClick}
             onRelayout={handleRelayout}
           />
@@ -391,7 +421,7 @@ export default function SckParamsSection({
         </div>
         <table className="result-table">
           <thead>
-            <tr><th>Start (s)</th><th>Stop (s)</th><th>Remove</th></tr>
+            <tr><th>Start <span className="unit">(s)</span></th><th>Stop <span className="unit">(s)</span></th><th>Remove</th></tr>
           </thead>
           <tbody>
             {excludeRows.length === 0 ? (
@@ -399,19 +429,33 @@ export default function SckParamsSection({
                 <td className="muted" colSpan={3}>No exclusion windows defined.</td>
               </tr>
             ) : (
-              excludeRows.map((row, i) => (
+              excludeRows.map((row, i) => {
+                const s = Number(row.start);
+                const e = Number(row.stop);
+                const invalidRange =
+                  row.start.trim() !== "" && row.stop.trim() !== "" &&
+                  Number.isFinite(s) && Number.isFinite(e) && e <= s;
+                return (
                 <tr key={`excl-${i}`}>
                   <td>
                     <input type="text" value={row.start} onChange={(e) => updateExcludeRow(i, "start", e.target.value)} placeholder="e.g. 120" />
                   </td>
                   <td>
-                    <input type="text" value={row.stop} onChange={(e) => updateExcludeRow(i, "stop", e.target.value)} placeholder="e.g. 130" />
+                    <input
+                      type="text"
+                      value={row.stop}
+                      onChange={(e) => updateExcludeRow(i, "stop", e.target.value)}
+                      placeholder="e.g. 130"
+                      style={invalidRange ? { borderColor: "var(--error)" } : undefined}
+                      title={invalidRange ? "Stop must be greater than start" : undefined}
+                    />
                   </td>
                   <td>
                     <button className="secondary" onClick={() => removeExcludeRow(i)}>Remove</button>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

@@ -1,3 +1,13 @@
+// Rounds to at most `decimals` decimal places, returning a plain number
+// (trailing zeros are not padded) — used to strip floating-point noise
+// from unit-converted display values (e.g. 33.33333333333333 -> 33.333)
+// without affecting the underlying full-precision stored value.
+export function roundDecimals(v: number, decimals = 3): number {
+  if (!Number.isFinite(v)) return v;
+  const magnitude = Math.pow(10, decimals);
+  return Math.round(v * magnitude) / magnitude;
+}
+
 export function formatKD(kdM: number) {
   if (!Number.isFinite(kdM) || kdM <= 0) return "—";
   const nM = kdM * 1e9;

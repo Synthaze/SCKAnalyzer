@@ -371,6 +371,21 @@ summary {
 summary::-webkit-details-marker { display: none; }
 details[open] summary { margin-bottom: 10px; color: var(--text); }
 
+/* Prominent accordion variant — accent-tinted box + rotating chevron,
+   for collapsible sections that shouldn't blend into the plain background. */
+details.accordion-accent {
+  border: 1px solid var(--accent);
+  background: var(--accent-faint);
+}
+.accordion-chevron {
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform .15s ease;
+}
+details[open] > summary .accordion-chevron {
+  transform: rotate(90deg);
+}
+
 /* ─── Help tooltip ───────────────────────────────── */
 .helptip {
   position: relative;

@@ -261,7 +261,7 @@ export default function SimulateSection() {
           {enableDrift && (
             <label>
               Drift (RU/s)
-              <input type="number" step="any" value={driftStr}
+              <input type="text" inputMode="decimal" value={driftStr}
                 onChange={(e) => setDriftStr(e.target.value)} style={{ width: 100 }} />
             </label>
           )}
@@ -273,7 +273,7 @@ export default function SimulateSection() {
             <>
               <label>
                 σ (RU)
-                <input type="number" min={0} step="any" value={noiseStr}
+                <input type="text" inputMode="decimal" value={noiseStr}
                   onChange={(e) => setNoiseStr(e.target.value)} style={{ width: 80 }} />
               </label>
               <button className="secondary" style={{ padding: "4px 10px", fontSize: 12, alignSelf: "flex-end" }}
@@ -288,12 +288,12 @@ export default function SimulateSection() {
         <div className="row" style={{ marginTop: 14, gap: 14, flexWrap: "wrap" }}>
           <label>
             Time step (s)
-            <input type="number" min={0.05} step={0.1} value={dtStr}
+            <input type="text" inputMode="decimal" value={dtStr}
               onChange={(e) => setDtStr(e.target.value)} style={{ width: 80 }} />
           </label>
           <label>
             Baseline (s)
-            <input type="number" min={0} step={10} value={baselineStr}
+            <input type="text" inputMode="decimal" value={baselineStr}
               onChange={(e) => setBaselineStr(e.target.value)} style={{ width: 90 }} />
           </label>
           {totalDuration > 0 && (
@@ -340,15 +340,15 @@ export default function SimulateSection() {
                 <tr key={i}>
                   <td className="muted" style={{ textAlign: "center", fontSize: 12 }}>{i + 1}</td>
                   <td>
-                    <input type="number" min={0} step="any" value={inj.conc}
+                    <input type="text" inputMode="decimal" value={inj.conc}
                       onChange={(e) => updateInj(i, "conc", e.target.value)} style={{ width: "100%" }} />
                   </td>
                   <td>
-                    <input type="number" min={1} step={10} value={inj.assocTime}
+                    <input type="text" inputMode="decimal" value={inj.assocTime}
                       onChange={(e) => updateInj(i, "assocTime", e.target.value)} style={{ width: "100%" }} />
                   </td>
                   <td>
-                    <input type="number" min={0} step={10} value={inj.dissocTime}
+                    <input type="text" inputMode="decimal" value={inj.dissocTime}
                       onChange={(e) => updateInj(i, "dissocTime", e.target.value)} style={{ width: "100%" }} />
                   </td>
                   <td className="mono muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>

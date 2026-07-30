@@ -29,7 +29,6 @@ type Props = {
   runFit: () => void;
   canFit: boolean;
   fits: FitResult[];
-  stepsStatus: string;
   stepsForShading: Array<{ start: number; stop: number; C: number }>;
   refCol: string;
   injectionSteps: Array<{ start: number; stop: number; C: number }>;
@@ -51,7 +50,7 @@ function summarize(vals: number[], fmt: (v: number) => string) {
 
 export default function FitResultsSection({
   fitOptions, runFit, canFit, fits,
-  stepsStatus, stepsForShading, refCol, injectionSteps,
+  stepsForShading, refCol, injectionSteps,
 }: Props) {
   const [overlapNormalize, setOverlapNormalize] = useState(true);
   const [overlapBaseline, setOverlapBaseline] = useState<"data" | "fit">("data");
@@ -66,17 +65,21 @@ export default function FitResultsSection({
 
   const {
     repFitMode, setRepFitMode,
+    shareRmax, setShareRmax,
+    shareBulk, setShareBulk,
     baselineMode, setBaselineMode,
     robustLoss, setRobustLoss,
-    enableDrift, setEnableDrift,
     enableBulk, setEnableBulk,
-    fitKa, setFitKa, fitKd, setFitKd, fitRmax, setFitRmax, fitDrift, setFitDrift,
-    kaBounds, setKaBounds, kdBounds, setKdBounds, rmaxBounds, setRmaxBounds, driftBounds, setDriftBounds,
-    kaFixed, setKaFixed, kdFixed, setKdFixed, rmaxFixed, setRmaxFixed, driftFixed, setDriftFixed,
+    fitKa, setFitKa, fitKd, setFitKd, fitRmax, setFitRmax,
+    kaBounds, setKaBounds, kdBounds, setKdBounds, rmaxBounds, setRmaxBounds,
+    kaFixed, setKaFixed, kdFixed, setKdFixed, rmaxFixed, setRmaxFixed,
     bootstrapN, setBootstrapN, bootstrapSeed, setBootstrapSeed,
   } = fitOptions;
 
   const isGlobalFit = fits.length > 0 && fits[0].fit_mode === "global";
+  // Reflects what the *displayed* results actually did, not the live toggle
+  // (which may have changed since this fit was run).
+  const rmaxSharedInFit = isGlobalFit && fits.every(f => f.params.Rmax === fits[0].params.Rmax);
 
   const hasMultiRep = fits.length > 1;
   const activeFit   = fits[Math.min(selectedRepIdx, fits.length - 1)] ?? null;
@@ -334,9 +337,21 @@ export default function FitResultsSection({
         <button onClick={runFit} className="primary" disabled={!canFit}>Run fit</button>
         <div className="row" style={{ gap: 4 }}>
           <button className={repFitMode === "per_rep" ? "primary" : "secondary"} style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setRepFitMode("per_rep")}>Per replicate<HelpTip text="Each replicate is fitted independently. Results are shown per replicate and summarised as Mean ± SD." /></button>
-          <button className={repFitMode === "global" ? "primary" : "secondary"} style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setRepFitMode("global")}>Global (shared {subscriptLabel("ka")}/{subscriptLabel("kd")}/{subscriptLabel("Rmax")})<HelpTip text="A single ka, kd, and Rmax are fitted simultaneously across all replicates; only drift and bulk offsets (if enabled) are fitted per replicate. Produces more constrained, statistically robust rate estimates." /></button>
+          <button className={repFitMode === "global" ? "primary" : "secondary"} style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setRepFitMode("global")}>
+            Global (shared {subscriptLabel("ka")}/{subscriptLabel("kd")}{shareRmax ? <>/{subscriptLabel("Rmax")}</> : null})
+            <HelpTip text={shareRmax
+              ? "A single ka, kd, and Rmax are fitted simultaneously across all replicates; only bulk offsets (if enabled) are fitted per replicate. Produces more constrained, statistically robust rate estimates."
+              : "A single ka and kd are fitted simultaneously across all replicates, but each replicate gets its own independently fitted Rmax (useful when surface capacity genuinely differs between replicates even though the kinetics are the same); bulk offsets (if enabled) are also fitted per replicate."} />
+          </button>
         </div>
-        <span className="muted">{stepsStatus || "Ready to fit once steps are defined."}</span>
+        {repFitMode === "global" && (
+          <label style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" checked={shareRmax} onChange={(e) => setShareRmax(e.target.checked)} />
+            <span className="muted">Share {subscriptLabel("Rmax")} across replicates</span>
+            <HelpTip text="On: a single Rmax is fitted across all replicates, like ka/kd. Off: each replicate gets its own independently fitted Rmax." />
+          </label>
+        )}
+        <span className="muted">{canFit ? "Ready to fit." : "Define injection steps first (tab 3)."}</span>
       </div>
 
       {/* Advanced options */}
@@ -344,15 +359,17 @@ export default function FitResultsSection({
         <summary className="muted" style={{ cursor: "pointer" }}>Advanced options</summary>
         <div className="row" style={{ marginTop: 10 }}>
           <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <input type="checkbox" checked={enableDrift} onChange={(e) => setEnableDrift(e.target.checked)} />
-            <span className="muted">Fit linear drift</span>
-            <HelpTip text="Adds a linear drift term (slope × time) to the model. Use this to correct for slow baseline drift in the instrument signal." />
-          </label>
-          <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <input type="checkbox" checked={enableBulk} onChange={(e) => setEnableBulk(e.target.checked)} />
             <span className="muted">Fit bulk offsets</span>
             <HelpTip text="Fits an independent baseline offset for each injection segment to account for bulk refractive index shifts at injection transitions." />
           </label>
+          {repFitMode === "global" && enableBulk && (
+            <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={shareBulk} onChange={(e) => setShareBulk(e.target.checked)} />
+              <span className="muted">Share bulk offsets per injection across replicates</span>
+              <HelpTip text="On: one bulk offset per injection is fitted and shared across all replicates, like ka/kd. Off: each replicate gets its own independently fitted set of bulk offsets." />
+            </label>
+          )}
         </div>
         <div style={{ marginTop: 10 }}>
           <label>
@@ -379,32 +396,25 @@ export default function FitResultsSection({
             <thead><tr><th>Parameter</th><th>Fit?</th><th>Fixed value</th><th>Min</th><th>Max</th></tr></thead>
             <tbody>
               <tr>
-                <th>ka (1/M·s)</th>
+                <th>{subscriptLabel("ka")} <span className="unit" style={{ fontWeight: 400 }}>(1/M·s)</span></th>
                 <td><input type="checkbox" checked={fitKa} onChange={(e) => setFitKa(e.target.checked)} /></td>
-                <td><input type="number" value={kaFixed} onChange={(e) => setKaFixed(e.target.value)} disabled={fitKa} /></td>
+                <td><input type="text" inputMode="decimal" value={kaFixed} onChange={(e) => setKaFixed(e.target.value)} disabled={fitKa} /></td>
                 <td><input type="text" value={kaBounds.min} onChange={(e) => setKaBounds({ ...kaBounds, min: e.target.value })} /></td>
                 <td><input type="text" value={kaBounds.max} onChange={(e) => setKaBounds({ ...kaBounds, max: e.target.value })} /></td>
               </tr>
               <tr>
-                <th>kd (1/s)</th>
+                <th>{subscriptLabel("kd")} <span className="unit" style={{ fontWeight: 400 }}>(1/s)</span></th>
                 <td><input type="checkbox" checked={fitKd} onChange={(e) => setFitKd(e.target.checked)} /></td>
-                <td><input type="number" value={kdFixed} onChange={(e) => setKdFixed(e.target.value)} disabled={fitKd} /></td>
+                <td><input type="text" inputMode="decimal" value={kdFixed} onChange={(e) => setKdFixed(e.target.value)} disabled={fitKd} /></td>
                 <td><input type="text" value={kdBounds.min} onChange={(e) => setKdBounds({ ...kdBounds, min: e.target.value })} /></td>
                 <td><input type="text" value={kdBounds.max} onChange={(e) => setKdBounds({ ...kdBounds, max: e.target.value })} /></td>
               </tr>
               <tr>
-                <th>Rmax (RU)</th>
+                <th>{subscriptLabel("Rmax")} <span className="unit" style={{ fontWeight: 400 }}>(RU)</span></th>
                 <td><input type="checkbox" checked={fitRmax} onChange={(e) => setFitRmax(e.target.checked)} /></td>
-                <td><input type="number" value={rmaxFixed} onChange={(e) => setRmaxFixed(e.target.value)} disabled={fitRmax} /></td>
+                <td><input type="text" inputMode="decimal" value={rmaxFixed} onChange={(e) => setRmaxFixed(e.target.value)} disabled={fitRmax} /></td>
                 <td><input type="text" value={rmaxBounds.min} onChange={(e) => setRmaxBounds({ ...rmaxBounds, min: e.target.value })} /></td>
                 <td><input type="text" value={rmaxBounds.max} onChange={(e) => setRmaxBounds({ ...rmaxBounds, max: e.target.value })} /></td>
-              </tr>
-              <tr>
-                <th>drift (RU/s)</th>
-                <td><input type="checkbox" checked={fitDrift} onChange={(e) => setFitDrift(e.target.checked)} disabled={!enableDrift} /></td>
-                <td><input type="number" value={driftFixed} onChange={(e) => setDriftFixed(e.target.value)} disabled={fitDrift || !enableDrift} /></td>
-                <td><input type="text" value={driftBounds.min} onChange={(e) => setDriftBounds({ ...driftBounds, min: e.target.value })} disabled={!enableDrift} /></td>
-                <td><input type="text" value={driftBounds.max} onChange={(e) => setDriftBounds({ ...driftBounds, max: e.target.value })} disabled={!enableDrift} /></td>
               </tr>
             </tbody>
           </table>
@@ -417,9 +427,17 @@ export default function FitResultsSection({
           </label>
           <label>
             N
-            <input type="number" min={0} step={10} value={bootstrapN}
-              onChange={(e) => setBootstrapN(Math.max(0, Math.floor(Number(e.target.value))))}
-              style={{ width: 100 }} disabled={bootstrapN === 0} />
+            <input
+              key={bootstrapN}
+              type="text"
+              inputMode="numeric"
+              defaultValue={bootstrapN}
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) setBootstrapN(Math.max(0, Math.floor(v)));
+              }}
+              style={{ width: 100 }} disabled={bootstrapN === 0}
+            />
           </label>
           <label>
             Seed (optional)
@@ -439,7 +457,6 @@ export default function FitResultsSection({
           {/* Parameters table — transposed: params as columns, replicates as rows */}
           <div style={{ overflowX: "auto" }}>
             {fits.length > 0 && (() => {
-              const hasDrift = fits.some(f => f.params.drift_RU_per_s !== undefined);
               const showCi = fits.some(f => f.bootstrap?.ci95 && Object.keys(f.bootstrap.ci95).length > 0);
 
               type ParamSpec = {
@@ -488,18 +505,13 @@ export default function FitResultsSection({
                   getSe: f => fmtSe(f).Rmax,
                   getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["Rmax"] as [number,number]|undefined; return ci ? `${ci[0].toFixed(3)} – ${ci[1].toFixed(3)}` : null; },
                 },
-                ...(hasDrift ? [{
-                  key: "drift_RU_per_s", label: "drift", unit: "RU/s",
-                  helpText: "Linear baseline drift rate. A small non-zero value absorbs slow instrument drift. Only present when 'Fit linear drift' is enabled.",
-                  getVal: (f: FitResult) => f.params.drift_RU_per_s !== undefined ? Number(f.params.drift_RU_per_s) : null,
-                  fmt: (v: number) => v.toExponential(3) as React.ReactNode,
-                  fmtPlain: (v: number) => v.toExponential(3),
-                  getSe: (f: FitResult) => f.standard_errors?.drift_RU_per_s !== undefined ? f.standard_errors.drift_RU_per_s.toExponential(3) : null,
-                  getCi: (f: FitResult) => { const ci = (f.bootstrap?.ci95 ?? {})["drift_RU_per_s"] as [number,number]|undefined; return ci ? `${ci[0].toExponential(3)} – ${ci[1].toExponential(3)}` : null; },
-                }] as ParamSpec[] : []),
               ];
 
-              const rowFits = isGlobalFit ? [fits[0]] : fits;
+              // Always show one row per replicate, even in Global fit mode —
+              // consistent regardless of whether Rmax happens to be shared.
+              // Shared parameters (ka, kd, and Rmax when shared) will simply
+              // repeat the same value across rows, which is expected.
+              const rowFits = fits;
 
               return (
                 <table className="result-table" style={{ width: "auto" }}>
@@ -523,7 +535,7 @@ export default function FitResultsSection({
                     {rowFits.map((f, ri) => (
                       <tr key={ri}>
                         <th style={hasMultiRep ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
-                          {isGlobalFit ? "Global fit" : hasMultiRep ? `Rep ${ri + 1}` : "Value"}
+                          {hasMultiRep ? `Rep ${ri + 1}` : "Value"}
                         </th>
                         {specs.map(p => {
                           const val = p.getVal(f);
@@ -545,20 +557,24 @@ export default function FitResultsSection({
             })()}
           </div>
 
-          {/* Mean ± SD summary — per-replicate multi-rep only */}
-          {hasMultiRep && !isGlobalFit && (() => {
-            const hasDrift = fits.some(f => f.params.drift_RU_per_s !== undefined);
+          {/* Mean ± SD summary — shown consistently for any multi-replicate
+              fit, global or per-replicate. */}
+          {hasMultiRep && (() => {
             type SummaryRow = { label: string; unit: string; mean: string | null; sd: string | null };
             const rows: SummaryRow[] = [
               { label: "ka", unit: "1/M·s", ...summarize(fits.map(f => f.params.ka), v => v.toExponential(4)) },
               { label: "kd", unit: "1/s",   ...summarize(fits.map(f => f.params.kd), v => v.toExponential(4)) },
               { label: "KD", unit: "M",     ...summarize(fits.map(f => f.params.KD), v => v.toExponential(4)) },
               { label: "Rmax", unit: "RU",  ...summarize(fits.map(f => f.params.Rmax), v => v.toFixed(3)) },
-              ...(hasDrift ? [{ label: "drift", unit: "RU/s", ...summarize(fits.map(f => f.params.drift_RU_per_s !== undefined ? Number(f.params.drift_RU_per_s) : NaN), v => v.toExponential(3)) }] : []),
             ];
             return (
               <div style={{ marginTop: 16 }}>
                 <div className="muted" style={{ marginBottom: 6 }}>Summary ({fits.length} replicates)</div>
+                {isGlobalFit && (
+                  <div className="muted" style={{ fontSize: 12, marginBottom: 8, maxWidth: 560 }}>
+                    In a global fit, {subscriptLabel("ka")}/{subscriptLabel("kd")}{rmaxSharedInFit ? <> and {subscriptLabel("Rmax")}</> : null} are fitted as one shared value across all replicates by design, so their SD here is 0 — that's expected, not an error. It does <em>not</em> mean the parameter is known with zero uncertainty: see the SE column in the table above for its actual estimated uncertainty.
+                  </div>
+                )}
                 <table className="result-table">
                   <thead>
                     <tr>
@@ -689,7 +705,7 @@ export default function FitResultsSection({
           <div className="plots">
             <Plot
               data={combinedFitData}
-              layout={{ ...fitLayout, title: { text: hasMultiRep ? (isGlobalFit ? "Global Fit (shared k<sub>a</sub>/k<sub>d</sub>/R<sub>max</sub>) — all replicates" : "Per-replicate fits") : "Fit (Data + Model)", font: { color: "#1c1916", size: 14 } } } as any}
+              layout={{ ...fitLayout, title: { text: hasMultiRep ? (isGlobalFit ? `Global Fit (shared k<sub>a</sub>/k<sub>d</sub>${rmaxSharedInFit ? "/R<sub>max</sub>" : ""}) — all replicates` : "Per-replicate fits") : "Fit (Data + Model)", font: { color: "#1c1916", size: 14 } } } as any}
               style={{ width: "100%", height: "380px" }}
               useResizeHandler
               config={{ responsive: true, displaylogo: false }}
@@ -715,8 +731,9 @@ export default function FitResultsSection({
             </div>
           </div>
 
-          <details style={{ marginTop: 16 }}>
-            <summary className="muted" style={{ cursor: "pointer" }}>
+          <details className="accordion-accent" style={{ marginTop: 16 }}>
+            <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: 15, color: "var(--text)" }}>
+              <span className="accordion-chevron">▸</span>
               Association &amp; dissociation overlap{hasMultiRep ? ` — Rep ${selectedRepIdx + 1}` : ""}
             </summary>
             <div className="row" style={{ marginTop: 10, marginBottom: 8 }}>

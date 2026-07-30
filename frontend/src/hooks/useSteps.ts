@@ -38,12 +38,12 @@ export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult
   const [stepsTable, setStepsTable] = useState<Step[]>([]);
   const [stepsStatus, setStepsStatus] = useState("");
 
-  const [injStart, setInjStart] = useState<number>(10);
+  const [injStart, setInjStart] = useState<number>(50);
   const [injDur, setInjDur] = useState<number>(60);
   const [gapDur, setGapDur] = useState<number>(60);
   const [nInj, setNInj] = useState<number>(4);
-  const [cFinal, setCFinal] = useState<number>(3e-8);
-  const [dilFactor, setDilFactor] = useState<number>(3);
+  const [cFinal, setCFinal] = useState<number>(50e-9);
+  const [dilFactor, setDilFactor] = useState<number>(2);
   const [dissDur, setDissDur] = useState<number>(120);
 
   const stepsParsed = useMemo(() => tryParseSteps(stepsJson), [stepsJson]);

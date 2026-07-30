@@ -5,13 +5,14 @@ import { fitCsv as fitCsvApi, fitGlobalCsv as fitGlobalCsvApi } from "./api";
 import { useFilesets } from "./hooks/useFilesets";
 import { useSteps } from "./hooks/useSteps";
 import { useFitOptions } from "./hooks/useFitOptions";
+import IntroductionSection from "./components/IntroductionSection";
 import UploadSection from "./components/UploadSection";
 import SckParamsSection from "./components/SckParamsSection";
 import FitResultsSection from "./components/FitResultsSection";
 import SimulateSection from "./components/SimulateSection";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"upload" | "sck" | "fit" | "simulate">("upload");
+  const [activeTab, setActiveTab] = useState<"intro" | "upload" | "sck" | "fit" | "simulate">("intro");
   const filesets = useFilesets();
   const steps = useSteps(
     filesets.primaryDataset?.parsed ?? null,
@@ -62,10 +63,12 @@ export default function App() {
 
     const {
       repFitMode,
-      enableDrift, enableBulk, robustLoss, baselineMode,
-      fitKa, fitKd, fitRmax, fitDrift,
-      kaBounds, kdBounds, rmaxBounds, driftBounds,
-      kaFixed, kdFixed, rmaxFixed, driftFixed,
+      shareRmax,
+      shareBulk,
+      enableBulk, robustLoss, baselineMode,
+      fitKa, fitKd, fitRmax,
+      kaBounds, kdBounds, rmaxBounds,
+      kaFixed, kdFixed, rmaxFixed,
       bootstrapN, bootstrapSeed, excludesJson,
     } = fitOptions;
 
@@ -75,12 +78,9 @@ export default function App() {
     if (kaBounds.min || kaBounds.max) bounds.ka = [parseBound(kaBounds.min), parseBound(kaBounds.max)];
     if (kdBounds.min || kdBounds.max) bounds.kd = [parseBound(kdBounds.min), parseBound(kdBounds.max)];
     if (rmaxBounds.min || rmaxBounds.max) bounds.Rmax = [parseBound(rmaxBounds.min), parseBound(rmaxBounds.max)];
-    if (enableDrift && (driftBounds.min || driftBounds.max))
-      bounds.drift_RU_per_s = [parseBound(driftBounds.min), parseBound(driftBounds.max)];
     if (!fitKa && kaFixed.trim()) fixed.ka = Number(kaFixed);
     if (!fitKd && kdFixed.trim()) fixed.kd = Number(kdFixed);
     if (!fitRmax && rmaxFixed.trim()) fixed.Rmax = Number(rmaxFixed);
-    if (enableDrift && !fitDrift && driftFixed.trim()) fixed.drift_RU_per_s = Number(driftFixed);
 
     const boundsJson = Object.keys(bounds).length ? JSON.stringify(bounds) : undefined;
     const fixedJson  = Object.keys(fixed).length  ? JSON.stringify(fixed)  : undefined;
@@ -90,7 +90,7 @@ export default function App() {
       baseline_mode: baselineMode,
       robust_loss: robustLoss,
       model: "11" as const,
-      enable_drift: enableDrift,
+      enable_drift: false,
       enable_bulk: enableBulk,
       excludes_json: excludesJson.trim() ? excludesJson : undefined,
       bootstrap_n: bootstrapN,
@@ -106,11 +106,13 @@ export default function App() {
         results = await fitGlobalCsvApi({
           file: primary.file,
           replicates: validReps.map((r) => ({ time_col: r.xCol, ru_col: r.yCol })),
+          share_rmax: shareRmax,
+          share_bulk: shareBulk,
           ...sharedArgs,
         });
       } else {
         results = await Promise.all(
-          validReps.map((rep) => fitCsvApi({ file: primary.file, time_col: rep.xCol, ru_col: rep.yCol, conc_col: rep.concCol || undefined, ...sharedArgs }))
+          validReps.map((rep) => fitCsvApi({ file: primary.file, time_col: rep.xCol, ru_col: rep.yCol, ...sharedArgs }))
         );
       }
       setFits(results);
@@ -147,19 +149,24 @@ export default function App() {
       </div>
 
       <nav className="tabs-nav">
+        <button className={`tab-btn${activeTab === "intro" ? " active" : ""}`} onClick={() => setActiveTab("intro")}>
+          1 · Discover
+        </button>
         <button className={`tab-btn${activeTab === "upload" ? " active" : ""}`} onClick={() => setActiveTab("upload")}>
-          1 · Prepare dataset
+          2 · Prepare dataset
         </button>
         <button className={`tab-btn${activeTab === "sck" ? " active" : ""}`} onClick={() => setActiveTab("sck")}>
-          2 · SCK Parameters
+          3 · Define steps
         </button>
         <button className={`tab-btn${activeTab === "fit" ? " active" : ""}`} onClick={() => setActiveTab("fit")}>
-          3 · Fit
+          4 · Run fit
         </button>
         <button className={`tab-btn${activeTab === "simulate" ? " active" : ""}`} onClick={() => setActiveTab("simulate")}>
-          4 · Simulate
+          5 · Simulate
         </button>
       </nav>
+
+      {activeTab === "intro" && <IntroductionSection />}
 
       {activeTab === "upload" && (
         <UploadSection filesets={filesets} stepsForShading={stepsForShading} />
@@ -183,9 +190,8 @@ export default function App() {
           runFit={runFit}
           canFit={canFit}
           fits={fits}
-          stepsStatus={steps.stepsStatus}
           stepsForShading={stepsForShading}
-          refCol={filesets.primaryDataset?.replicates[0]?.refDatasetId ? "ref" : ""}
+          refCol={filesets.primaryDataset?.replicates[0]?.refReplicateKey ? "ref" : ""}
           injectionSteps={injectionSteps}
         />
       )}

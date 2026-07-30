@@ -578,6 +578,8 @@ def fit_global_sck_11_biacore(
     robust_loss: str = "soft_l1",
     enable_drift: bool = True,
     enable_bulk: bool = True,
+    share_rmax: bool = True,
+    share_bulk: bool = True,
     excludes: Optional[List[Dict[str, float]]] = None,
     bootstrap_n: int = 0,
     bootstrap_seed: Optional[int] = None,
@@ -585,14 +587,33 @@ def fit_global_sck_11_biacore(
     fixed_params: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Global fit across N replicates: shared ka, kd, Rmax (and kt if MT);
-    per-replicate drift (optional) and bulk offsets (optional).
+    Global fit across N replicates: shared ka, kd (and kt if MT). Rmax is
+    shared too by default (share_rmax=True); set share_rmax=False to fit an
+    independent Rmax per replicate instead (e.g. when surface capacity is
+    expected to differ between replicates even though the underlying
+    kinetics, ka/kd, are the same). Per-injection bulk offsets are likewise
+    shared across replicates by default (share_bulk=True) — the bulk RI
+    shift at a given injection is usually a systematic, concentration-
+    dependent artifact rather than something that should vary randomly
+    between replicates; set share_bulk=False to fit an independent set of
+    offsets per replicate instead. Drift (optional) is always fitted
+    independently per replicate.
 
-    Parameter vector layout:
-      [log10_ka, log10_kd, Rmax, [log10_kt],
-       [drift_0], [bulk_0_0..m-1],
-       [drift_1], [bulk_1_0..m-1],
+    Parameter vector layout (share_rmax=True, share_bulk=True — the default):
+      [log10_ka, log10_kd, Rmax, [log10_kt], [bulk_0..bulk_{m-1}],
+       [drift_0],
+       [drift_1],
        ...]
+
+    Parameter vector layout (share_rmax=False, share_bulk=False):
+      [log10_ka, log10_kd, [log10_kt],
+       [Rmax_0], [drift_0], [bulk_0_0..m-1],
+       [Rmax_1], [drift_1], [bulk_1_0..m-1],
+       ...]
+
+    (share_rmax and share_bulk are independent — any combination is valid;
+    each parameter simply lives in the shared block or the per-replicate
+    block depending on its own flag.)
     """
     n_reps = len(reps)
     if n_reps == 0:
@@ -605,16 +626,31 @@ def fit_global_sck_11_biacore(
     inj = _injection_steps(steps)
     n_inj = len(inj)
     use_mt = (model == "11_mt")
+    bulk_active = enable_bulk and n_inj > 0
 
-    # Shared: log10_ka, log10_kd, Rmax, [log10_kt]
-    # n_shared indices: 0=log10_ka, 1=log10_kd, 2=Rmax, 3=log10_kt (if MT)
-    n_shared = 3 + (1 if use_mt else 0)
+    # Shared block: log10_ka, log10_kd, [Rmax if shared], [log10_kt],
+    #               [bulk_0..bulk_{n_inj-1} if shared]
+    n_shared = 2 + (1 if share_rmax else 0) + (1 if use_mt else 0)
+    rmax_shared_idx = 2 if share_rmax else None
+    kt_shared_idx = (2 + (1 if share_rmax else 0)) if use_mt else None
+    bulk_shared_idx: Optional[int] = None
+    if bulk_active and share_bulk:
+        bulk_shared_idx = n_shared
+        n_shared += n_inj
 
-    # Per-rep: [drift_i], [bulk_i_0..n_inj-1]
+    # Per-rep block: [Rmax_i if not shared], [drift_i], [bulk_i_0..n_inj-1 if not shared]
     per_rep = 0
-    if enable_drift:
+    rmax_rep_offset: Optional[int] = None
+    if not share_rmax:
+        rmax_rep_offset = per_rep
         per_rep += 1
-    if enable_bulk and n_inj > 0:
+    drift_rep_offset: Optional[int] = None
+    if enable_drift:
+        drift_rep_offset = per_rep
+        per_rep += 1
+    bulk_rep_offset: Optional[int] = None
+    if bulk_active and not share_bulk:
+        bulk_rep_offset = per_rep
         per_rep += n_inj
 
     ka0, kd0 = 1e5, 1e-3
@@ -622,16 +658,23 @@ def fit_global_sck_11_biacore(
     all_ymax = max((float(np.nanmax(y_i)) for _, y_i in reps if y_i.size), default=10.0)
     rmax0 = max(all_ymax, 10.0)
 
-    x0_list: List[float] = [np.log10(ka0), np.log10(kd0), rmax0]
-    lb_list: List[float] = [2.0, -6.0, 0.0]
-    ub_list: List[float] = [9.0, 1.0, 1e6]
+    x0_list: List[float] = [np.log10(ka0), np.log10(kd0)]
+    lb_list: List[float] = [2.0, -6.0]
+    ub_list: List[float] = [9.0, 1.0]
+    if share_rmax:
+        x0_list += [rmax0]; lb_list += [0.0]; ub_list += [1e6]
     if use_mt:
         x0_list += [np.log10(kt0)]; lb_list += [-3.0]; ub_list += [4.0]
+    if bulk_active and share_bulk:
+        x0_list += [0.0] * n_inj; lb_list += [-500.0] * n_inj; ub_list += [500.0] * n_inj
 
-    for _ in reps:
+    for _, y_i in reps:
+        if not share_rmax:
+            rmax0_i = max(float(np.nanmax(y_i)) if y_i.size else 10.0, 10.0)
+            x0_list += [rmax0_i]; lb_list += [0.0]; ub_list += [1e6]
         if enable_drift:
             x0_list += [0.0]; lb_list += [-0.1]; ub_list += [0.1]
-        if enable_bulk and n_inj > 0:
+        if bulk_active and not share_bulk:
             x0_list += [0.0] * n_inj; lb_list += [-500.0] * n_inj; ub_list += [500.0] * n_inj
 
     x0_arr = np.array(x0_list, dtype=float)
@@ -657,10 +700,14 @@ def fit_global_sck_11_biacore(
             try:
                 if key == "ka": _set_b(0, _to_log_bound(lo), _to_log_bound(hi))
                 elif key == "kd": _set_b(1, _to_log_bound(lo), _to_log_bound(hi))
-                elif key == "Rmax": _set_b(2, lo, hi)
-                elif key == "kt_per_s" and use_mt: _set_b(3, _to_log_bound(lo), _to_log_bound(hi))
+                elif key == "Rmax":
+                    if share_rmax:
+                        _set_b(rmax_shared_idx, lo, hi)
+                    else:
+                        for ri in range(n_reps): _set_b(n_shared + ri * per_rep + rmax_rep_offset, lo, hi)
+                elif key == "kt_per_s" and use_mt: _set_b(kt_shared_idx, _to_log_bound(lo), _to_log_bound(hi))
                 elif key == "drift_RU_per_s" and enable_drift:
-                    for ri in range(n_reps): _set_b(n_shared + ri * per_rep, lo, hi)
+                    for ri in range(n_reps): _set_b(n_shared + ri * per_rep + drift_rep_offset, lo, hi)
             except _InvalidBound:
                 continue
 
@@ -672,31 +719,39 @@ def fit_global_sck_11_biacore(
                 lv = float(np.log10(v)); _set_b(0, lv, lv)
             elif key == "kd" and v > 0:
                 lv = float(np.log10(v)); _set_b(1, lv, lv)
-            elif key == "Rmax": _set_b(2, v, v)
+            elif key == "Rmax":
+                if share_rmax:
+                    _set_b(rmax_shared_idx, v, v)
+                else:
+                    for ri in range(n_reps): _set_b(n_shared + ri * per_rep + rmax_rep_offset, v, v)
             elif key == "kt_per_s" and use_mt and v > 0:
-                lv = float(np.log10(v)); _set_b(3, lv, lv)
+                lv = float(np.log10(v)); _set_b(kt_shared_idx, lv, lv)
             elif key == "drift_RU_per_s" and enable_drift:
-                for ri in range(n_reps): _set_b(n_shared + ri * per_rep, v, v)
+                for ri in range(n_reps): _set_b(n_shared + ri * per_rep + drift_rep_offset, v, v)
 
     def unpack_shared(x: np.ndarray):
-        ka = 10 ** float(x[0]); kd = 10 ** float(x[1]); rmax = float(x[2])
-        kt = 10 ** float(x[3]) if use_mt else None
-        return ka, kd, rmax, kt
+        ka = 10 ** float(x[0]); kd = 10 ** float(x[1])
+        rmax = float(x[rmax_shared_idx]) if share_rmax else None
+        kt = 10 ** float(x[kt_shared_idx]) if use_mt else None
+        bulk_shared: Optional[np.ndarray] = None
+        if bulk_shared_idx is not None:
+            bulk_shared = x[bulk_shared_idx: bulk_shared_idx + n_inj].astype(float).copy()
+        return ka, kd, rmax, kt, bulk_shared
 
     def unpack_rep(x: np.ndarray, ri: int):
-        if per_rep == 0:
-            return 0.0, None
         base = n_shared + ri * per_rep
-        drift = float(x[base]) if enable_drift else 0.0
-        bulk: Optional[np.ndarray] = None
-        if enable_bulk and n_inj > 0:
-            off = 1 if enable_drift else 0
-            bulk = x[base + off: base + off + n_inj].astype(float).copy()
-        return drift, bulk
+        rmax_i = None if share_rmax else float(x[base + rmax_rep_offset])
+        drift = float(x[base + drift_rep_offset]) if enable_drift else 0.0
+        bulk_i: Optional[np.ndarray] = None
+        if bulk_rep_offset is not None:
+            bulk_i = x[base + bulk_rep_offset: base + bulk_rep_offset + n_inj].astype(float).copy()
+        return rmax_i, drift, bulk_i
 
     def predict_rep(tt: np.ndarray, x: np.ndarray, ri: int) -> np.ndarray:
-        ka, kd, rmax, kt = unpack_shared(x)
-        drift, bulk = unpack_rep(x, ri)
+        ka, kd, rmax_shared_val, kt, bulk_shared_val = unpack_shared(x)
+        rmax_i, drift, bulk_i = unpack_rep(x, ri)
+        rmax = rmax_shared_val if share_rmax else rmax_i
+        bulk = bulk_shared_val if share_bulk else bulk_i
         if use_mt and kt is not None:
             return _simulate_11_mass_transport(tt, steps, ka, kd, rmax, kt, drift=drift, bulk_offsets=bulk)
         return _simulate_11_analytic(tt, steps, ka, kd, rmax, drift=drift, bulk_offsets=bulk)
@@ -712,7 +767,7 @@ def fit_global_sck_11_biacore(
         f_scale=1.0, max_nfev=12000,
     )
 
-    ka, kd, rmax, kt = unpack_shared(res.x)
+    ka, kd, rmax_shared_val, kt, bulk_shared_val = unpack_shared(res.x)
     KD = float(kd / ka) if ka > 0 else float("nan")
 
     se_all: Optional[np.ndarray] = None
@@ -753,16 +808,18 @@ def fit_global_sck_11_biacore(
                 )
                 if not res_b.success:
                     bs_failures += 1; continue
-                ka_b, kd_b, rmax_b, kt_b = unpack_shared(res_b.x)
+                ka_b, kd_b, rmax_shared_b, kt_b, bulk_shared_b = unpack_shared(res_b.x)
                 for ri in range(n_reps):
-                    drift_b, bulk_b = unpack_rep(res_b.x, ri)
+                    rmax_i_b, drift_b, bulk_i_b = unpack_rep(res_b.x, ri)
+                    rmax_b = rmax_shared_b if share_rmax else rmax_i_b
+                    bulk_b = bulk_shared_b if share_bulk else bulk_i_b
                     entry_bs: Dict[str, float] = {
                         "ka": float(ka_b), "kd": float(kd_b),
                         "KD": float(kd_b / ka_b) if ka_b > 0 else float("nan"),
                         "Rmax": float(rmax_b),
                     }
                     if enable_drift: entry_bs["drift_RU_per_s"] = float(drift_b)
-                    if enable_bulk and bulk_b is not None:
+                    if bulk_b is not None:
                         for i in range(len(bulk_b)): entry_bs[f"bulk_offset_{i}_RU"] = float(bulk_b[i])
                     bs_params_list[ri].append(entry_bs)
             except Exception:
@@ -770,7 +827,9 @@ def fit_global_sck_11_biacore(
 
     results: List[Dict[str, Any]] = []
     for ri, (t_i, y_i) in enumerate(reps):
-        drift_i, bulk_i = unpack_rep(res.x, ri)
+        rmax_i, drift_i, bulk_i = unpack_rep(res.x, ri)
+        rmax = rmax_shared_val if share_rmax else rmax_i
+        bulk = bulk_shared_val if share_bulk else bulk_i
 
         # Full trace (may include user-excluded windows); used for plotting/QC only.
         yhat_i = predict_rep(t_i, res.x, ri)
@@ -791,19 +850,25 @@ def fit_global_sck_11_biacore(
 
         se_out: Optional[Dict[str, float]] = None
         if se_all is not None:
-            se_out = {"log10_ka": float(se_all[0]), "log10_kd": float(se_all[1]), "Rmax": float(se_all[2])}
-            if use_mt: se_out["log10_kt"] = float(se_all[3])
-            if enable_drift and per_rep > 0:
-                se_out["drift_RU_per_s"] = float(se_all[n_shared + ri * per_rep])
-            if enable_bulk and n_inj > 0:
-                off = 1 if enable_drift else 0
+            se_out = {"log10_ka": float(se_all[0]), "log10_kd": float(se_all[1])}
+            if share_rmax:
+                se_out["Rmax"] = float(se_all[rmax_shared_idx])
+            else:
+                se_out["Rmax"] = float(se_all[n_shared + ri * per_rep + rmax_rep_offset])
+            if use_mt: se_out["log10_kt"] = float(se_all[kt_shared_idx])
+            if enable_drift and drift_rep_offset is not None:
+                se_out["drift_RU_per_s"] = float(se_all[n_shared + ri * per_rep + drift_rep_offset])
+            if bulk_active:
                 for i in range(n_inj):
-                    se_out[f"bulk_offset_{i}_RU"] = float(se_all[n_shared + ri * per_rep + off + i])
+                    if share_bulk:
+                        se_out[f"bulk_offset_{i}_RU"] = float(se_all[bulk_shared_idx + i])
+                    else:
+                        se_out[f"bulk_offset_{i}_RU"] = float(se_all[n_shared + ri * per_rep + bulk_rep_offset + i])
 
         params_i: Dict[str, Any] = {"ka": float(ka), "kd": float(kd), "KD": KD, "Rmax": float(rmax)}
         if enable_drift: params_i["drift_RU_per_s"] = float(drift_i)
         if use_mt and kt is not None: params_i["kt_per_s"] = float(kt)
-        if enable_bulk and bulk_i is not None: params_i["bulk_offsets_RU"] = bulk_i.tolist()
+        if bulk is not None: params_i["bulk_offsets_RU"] = bulk.tolist()
 
         bs_out: Optional[Dict[str, Any]] = None
         if bootstrap_n and bootstrap_n > 0:
@@ -830,7 +895,7 @@ def fit_global_sck_11_biacore(
         out_i: Dict[str, Any] = {
             "success": bool(res.success), "message": str(res.message), "nfev": int(res.nfev),
             "model": "11_mt" if use_mt else "11", "fit_mode": "global",
-            "options": {"enable_drift": bool(enable_drift), "enable_bulk": bool(enable_bulk), "excludes": excludes or []},
+            "options": {"enable_drift": bool(enable_drift), "enable_bulk": bool(enable_bulk), "share_rmax": bool(share_rmax), "share_bulk": bool(share_bulk), "excludes": excludes or []},
             "params": params_i,
             "params_log10": {"log10_ka": float(res.x[0]), "log10_kd": float(res.x[1])},
             "fit_quality": fq_i, "standard_errors": se_out,

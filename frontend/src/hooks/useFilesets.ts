@@ -5,9 +5,8 @@ import { parseCsv } from "../api";
 export type Replicate = {
   xCol: string;
   yCol: string;
-  concCol: string;
-  refDatasetId: string;
-  blankDatasetId: string;
+  refReplicateKey: string;
+  blankReplicateKey: string;
   normalizeBaseline: boolean;
 };
 
@@ -75,8 +74,7 @@ function nextId() {
 function defaultReplicate(columns: string[]): Replicate {
   const xCol = guessColumn(columns, ["time", "seconds", "sec", "t", "x"]) || columns[0] || "";
   const yCol = guessColumn(columns, ["ru", "response", "signal", "y"]) || columns[1] || "";
-  const concCol = guessColumn(columns, ["conc_m", "conc", "concentration"]);
-  return { xCol, yCol, concCol, refDatasetId: "", blankDatasetId: "", normalizeBaseline: false };
+  return { xCol, yCol, refReplicateKey: "", blankReplicateKey: "", normalizeBaseline: false };
 }
 
 export function useFilesets(): UseFilesetsResult {
@@ -156,13 +154,6 @@ export function useFilesets(): UseFilesetsResult {
         .filter((d): d is FileDataset => d != null && d.parsed != null && d.replicates.length > 0);
       if (sources.length < 2) return prev;
 
-      // Datasets being merged away no longer exist as standalone entries, so
-      // any ref/blank pointing at one of *them* is now meaningless. A ref or
-      // blank pointing at an untouched, external dataset is still valid and
-      // should be carried over rather than silently dropped.
-      const mergedIdsSet = new Set(ids);
-      const carryOverId = (id: string) => (id && !mergedIdsSet.has(id) ? id : "");
-
       const maxRows = Math.max(...sources.map((d) => d.parsed!.n_rows));
       const allCols: string[] = [];
       const allData: Record<string, (string | number | null)[]> = {};
@@ -170,11 +161,9 @@ export function useFilesets(): UseFilesetsResult {
 
       sources.forEach((d, i) => {
         const prefix = `f${i + 1}_`;
-        const rep0 = d.replicates[0];
-        let newXCol = "";
-        let newYCol = "";
-        let newConcCol = "";
 
+        // Prefix/copy each raw column once per source file (columns belong
+        // to the file, not to any one of its series).
         for (const col of d.parsed!.columns) {
           const newCol = `${prefix}${col}`;
           allCols.push(newCol);
@@ -182,18 +171,21 @@ export function useFilesets(): UseFilesetsResult {
           allData[newCol] = arr.length < maxRows
             ? [...arr, ...Array<null>(maxRows - arr.length).fill(null)]
             : arr;
-          if (col === rep0.xCol) newXCol = newCol;
-          if (col === rep0.yCol) newYCol = newCol;
-          if (col === rep0.concCol) newConcCol = newCol;
         }
 
-        replicates.push({
-          xCol: newXCol || `${prefix}${d.parsed!.columns[0]}`,
-          yCol: newYCol || `${prefix}${d.parsed!.columns[1] ?? d.parsed!.columns[0]}`,
-          concCol: newConcCol,
-          refDatasetId: carryOverId(rep0.refDatasetId),
-          blankDatasetId: carryOverId(rep0.blankDatasetId),
-          normalizeBaseline: rep0.normalizeBaseline,
+        // Carry over *every* series of this source, not just the first —
+        // a multi-series dataset must contribute one merged replicate per
+        // series, or the extra series are silently dropped.
+        d.replicates.forEach((rep) => {
+          const newXCol = rep.xCol ? `${prefix}${rep.xCol}` : "";
+          const newYCol = rep.yCol ? `${prefix}${rep.yCol}` : "";
+          replicates.push({
+            xCol: newXCol || `${prefix}${d.parsed!.columns[0]}`,
+            yCol: newYCol || `${prefix}${d.parsed!.columns[1] ?? d.parsed!.columns[0]}`,
+            refReplicateKey: rep.refReplicateKey,
+            blankReplicateKey: rep.blankReplicateKey,
+            normalizeBaseline: rep.normalizeBaseline,
+          });
         });
       });
 
@@ -216,22 +208,11 @@ export function useFilesets(): UseFilesetsResult {
         error: "",
       };
 
-      // Any *other* dataset that referenced one of the now-merged-away
-      // sources would otherwise be left with a dangling ref/blank id.
-      const remaining = prev
-        .filter((d) => !mergedIdsSet.has(d.id))
-        .map((d) => ({
-          ...d,
-          replicates: d.replicates.map((r) => ({
-            ...r,
-            refDatasetId: carryOverId(r.refDatasetId),
-            blankDatasetId: carryOverId(r.blankDatasetId),
-          })),
-        }));
-
-      return [...remaining, mergedDs];
+      // Source datasets are kept as-is; merging only adds a new combined
+      // dataset rather than replacing/removing the files it was built from.
+      return [...prev, mergedDs];
     });
-    setPrimaryId((cur) => (ids.includes(cur) ? newId : cur));
+    setPrimaryId(newId);
   }, []);
 
   const removeReplicate = useCallback((datasetId: string, repIdx: number) => {
@@ -285,13 +266,13 @@ export function useFilesets(): UseFilesetsResult {
 
         let y = base.y;
 
-        if (rep.refDatasetId && rep.refDatasetId !== d.id) {
-          const refDs = datasets.find((ds) => ds.id === rep.refDatasetId);
-          if (refDs && refDs.replicates.length > 0) {
-            const refBase = rawSeries.get(`${refDs.id}__0`);
-            if (refBase && refBase.t.length > 0) {
-              y = base.t.map((t, i) => base.y[i] - lerp(refBase.t, refBase.y, t));
-            }
+        // refReplicateKey stores a specific replicate key ("datasetId__index"),
+        // not just a dataset id, so a multi-replicate reference file is
+        // disambiguated rather than always falling back to its replicate 0.
+        if (rep.refReplicateKey && rep.refReplicateKey !== key) {
+          const refBase = rawSeries.get(rep.refReplicateKey);
+          if (refBase && refBase.t.length > 0) {
+            y = base.t.map((t, i) => base.y[i] - lerp(refBase.t, refBase.y, t));
           }
         }
 
@@ -320,13 +301,11 @@ export function useFilesets(): UseFilesetsResult {
 
         let y = corrected.y;
 
-        if (rep.blankDatasetId && rep.blankDatasetId !== d.id) {
-          const blankDs = datasets.find((ds) => ds.id === rep.blankDatasetId);
-          if (blankDs && blankDs.replicates.length > 0) {
-            const blankCorrected = singleRefSeries.get(`${blankDs.id}__0`);
-            if (blankCorrected && blankCorrected.t.length > 0) {
-              y = corrected.t.map((t, i) => y[i] - lerp(blankCorrected.t, blankCorrected.y, t));
-            }
+        // blankReplicateKey likewise stores a specific replicate key.
+        if (rep.blankReplicateKey && rep.blankReplicateKey !== key) {
+          const blankCorrected = singleRefSeries.get(rep.blankReplicateKey);
+          if (blankCorrected && blankCorrected.t.length > 0) {
+            y = corrected.t.map((t, i) => y[i] - lerp(blankCorrected.t, blankCorrected.y, t));
           }
         }
 
@@ -344,7 +323,7 @@ export function useFilesets(): UseFilesetsResult {
 
         const label =
           d.replicates.length > 1
-            ? `${d.label} · rep ${ri + 1}`
+            ? `${d.label} · Series ${ri + 1}`
             : d.label;
 
         result.push({ id: key, datasetId: d.id, replicateIndex: ri, t: corrected.t, y, label });

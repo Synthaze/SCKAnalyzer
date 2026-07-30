@@ -67,6 +67,8 @@ export async function fitGlobalCsv(payload: {
   model?: string;
   enable_drift?: boolean;
   enable_bulk?: boolean;
+  share_rmax?: boolean;
+  share_bulk?: boolean;
   excludes_json?: string;
   bootstrap_n?: number;
   bootstrap_seed?: string;
@@ -83,6 +85,8 @@ export async function fitGlobalCsv(payload: {
   if (payload.model) fd.append("model", payload.model);
   if (payload.enable_drift !== undefined) fd.append("enable_drift", String(payload.enable_drift));
   if (payload.enable_bulk !== undefined) fd.append("enable_bulk", String(payload.enable_bulk));
+  if (payload.share_rmax !== undefined) fd.append("share_rmax", String(payload.share_rmax));
+  if (payload.share_bulk !== undefined) fd.append("share_bulk", String(payload.share_bulk));
   if (payload.excludes_json) fd.append("excludes_json", payload.excludes_json);
   if (payload.bootstrap_n && payload.bootstrap_n > 0) {
     fd.append("bootstrap_n", String(payload.bootstrap_n));
