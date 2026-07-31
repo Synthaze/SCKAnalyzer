@@ -5,13 +5,13 @@ export default function IntroductionSection() {
     <div className="card">
       <h3>Welcome to SCKAnalyzer</h3>
       <p style={{ marginBottom: 6 }}>
-        SCKAnalyzer is a free, open-source web application for analyzing Single-Cycle Kinetics (SCK) biosensor experiments (SPR / BLI).
+        SCKAnalyzer is a free, open-source web application for analyzing kinetic data obtained by the Single-Cycle Kinetics (SCK) method on BLI and SPR instruments, as well as on any other instrument capable of measuring interaction kinetics through titration experiments.
       </p>
       <p style={{ marginBottom: 6 }}>
-        It performs global, non-linear least-squares fitting of multi-injection sensorgrams to a 1:1 Langmuir binding model, with optional mass-transport limitation, instrument drift, and bulk-offset correction.
+        It performs global, non-linear least-squares fitting of multi-injection sensorgrams to a 1:1 Langmuir binding model only, with optional mass-transport limitation, instrument drift, and bulk-offset correction.
       </p>
       <p style={{ marginBottom: 6 }}>
-        Developed at the ARNA laboratory (INSERM U1212, University of Bordeaux), it is designed for fast, reproducible kinetic parameter estimation without proprietary software.
+        Developed at the ARNA laboratory (INSERM U1212, University of Bordeaux), it enables fast and reproducible determination of reaction rate constants (<em>k<sub>a</sub></em>, <em>k<sub>d</sub></em>) and equilibrium constants (<em>K<sub>D</sub></em>) without relying on proprietary software.
       </p>
       <p>
         Source code: <a href="https://github.com/Synthaze/SCKAnalyzer" target="_blank" rel="noopener noreferrer">github.com/synthaze/sckanalyzer</a>

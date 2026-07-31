@@ -80,6 +80,9 @@ export default function FitResultsSection({
   // Reflects what the *displayed* results actually did, not the live toggle
   // (which may have changed since this fit was run).
   const rmaxSharedInFit = isGlobalFit && fits.every(f => f.params.Rmax === fits[0].params.Rmax);
+  // Global fit always shares ka/kd; when Rmax is shared too, every replicate
+  // row would be identical, so the parameters table collapses to one row.
+  const showSingleGlobalRow = isGlobalFit && rmaxSharedInFit;
 
   const hasMultiRep = fits.length > 1;
   const activeFit   = fits[Math.min(selectedRepIdx, fits.length - 1)] ?? null;
@@ -338,19 +341,12 @@ export default function FitResultsSection({
         <div className="row" style={{ gap: 4 }}>
           <button className={repFitMode === "per_rep" ? "primary" : "secondary"} style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setRepFitMode("per_rep")}>Per replicate<HelpTip text="Each replicate is fitted independently. Results are shown per replicate and summarised as Mean ± SD." /></button>
           <button className={repFitMode === "global" ? "primary" : "secondary"} style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setRepFitMode("global")}>
-            Global (shared {subscriptLabel("ka")}/{subscriptLabel("kd")}{shareRmax ? <>/{subscriptLabel("Rmax")}</> : null})
+            Global (shared {subscriptLabel("ka")}/{subscriptLabel("kd")})
             <HelpTip text={shareRmax
               ? "A single ka, kd, and Rmax are fitted simultaneously across all replicates; only bulk offsets (if enabled) are fitted per replicate. Produces more constrained, statistically robust rate estimates."
               : "A single ka and kd are fitted simultaneously across all replicates, but each replicate gets its own independently fitted Rmax (useful when surface capacity genuinely differs between replicates even though the kinetics are the same); bulk offsets (if enabled) are also fitted per replicate."} />
           </button>
         </div>
-        {repFitMode === "global" && (
-          <label style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" checked={shareRmax} onChange={(e) => setShareRmax(e.target.checked)} />
-            <span className="muted">Share {subscriptLabel("Rmax")} across replicates</span>
-            <HelpTip text="On: a single Rmax is fitted across all replicates, like ka/kd. Off: each replicate gets its own independently fitted Rmax." />
-          </label>
-        )}
         <span className="muted">{canFit ? "Ready to fit." : "Define injection steps first (tab 3)."}</span>
       </div>
 
@@ -358,6 +354,13 @@ export default function FitResultsSection({
       <details style={{ marginBottom: 12 }}>
         <summary className="muted" style={{ cursor: "pointer" }}>Advanced options</summary>
         <div className="row" style={{ marginTop: 10 }}>
+          {repFitMode === "global" && (
+            <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={shareRmax} onChange={(e) => setShareRmax(e.target.checked)} />
+              <span className="muted">Share {subscriptLabel("Rmax")} across replicates</span>
+              <HelpTip text="On: a single Rmax is fitted across all replicates, like ka/kd. Off: each replicate gets its own independently fitted Rmax." />
+            </label>
+          )}
           <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <input type="checkbox" checked={enableBulk} onChange={(e) => setEnableBulk(e.target.checked)} />
             <span className="muted">Fit bulk offsets</span>
@@ -449,255 +452,6 @@ export default function FitResultsSection({
 
       {fits.length === 0 && <div className="muted">Run a fit to see results.</div>}
     </div>
-
-    {/* ── Parameters + quality card ── */}
-    {fits.length > 0 && (
-      <div className="card">
-        <h3>Fit results</h3>
-          {/* Parameters table — transposed: params as columns, replicates as rows */}
-          <div style={{ overflowX: "auto" }}>
-            {fits.length > 0 && (() => {
-              const showCi = fits.some(f => f.bootstrap?.ci95 && Object.keys(f.bootstrap.ci95).length > 0);
-
-              type ParamSpec = {
-                key: string; label: string; unit: string; helpText?: string;
-                getVal: (f: FitResult) => number | null;
-                fmt: (v: number) => React.ReactNode;
-                fmtPlain: (v: number) => string;
-                getSe: (f: FitResult) => string | null;
-                getCi: (f: FitResult) => string | null;
-              };
-
-              const specs: ParamSpec[] = [
-                {
-                  key: "ka", label: "ka", unit: "1/M·s",
-                  helpText: "Association rate constant (on-rate): how fast the analyte binds the ligand. Units: M⁻¹s⁻¹.",
-                  getVal: f => f.params.ka,
-                  fmt: v => v.toExponential(4),
-                  fmtPlain: v => v.toExponential(4),
-                  getSe: f => fmtSe(f).ka,
-                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["ka"] as [number,number]|undefined; return ci ? `${ci[0].toExponential(3)} – ${ci[1].toExponential(3)}` : null; },
-                },
-                {
-                  key: "kd", label: "kd", unit: "1/s",
-                  helpText: "Dissociation rate constant (off-rate): how fast the analyte–ligand complex falls apart. Units: s⁻¹.",
-                  getVal: f => f.params.kd,
-                  fmt: v => v.toExponential(4),
-                  fmtPlain: v => v.toExponential(4),
-                  getSe: f => fmtSe(f).kd,
-                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["kd"] as [number,number]|undefined; return ci ? `${ci[0].toExponential(3)} – ${ci[1].toExponential(3)}` : null; },
-                },
-                {
-                  key: "KD", label: "KD", unit: "M",
-                  helpText: "Equilibrium dissociation constant = kd / ka. Lower values indicate tighter binding. Units: M.",
-                  getVal: f => f.params.KD,
-                  fmt: v => v.toExponential(4),
-                  fmtPlain: v => v.toExponential(4),
-                  getSe: f => fmtSe(f).KD,
-                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["KD"] as [number,number]|undefined; return ci ? `${ci[0].toExponential(3)} – ${ci[1].toExponential(3)}` : null; },
-                },
-                {
-                  key: "Rmax", label: "Rmax", unit: "RU",
-                  helpText: "Maximum binding capacity. Signal expected when all ligand sites are occupied. Units: RU.",
-                  getVal: f => f.params.Rmax,
-                  fmt: v => v.toFixed(3),
-                  fmtPlain: v => v.toFixed(3),
-                  getSe: f => fmtSe(f).Rmax,
-                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["Rmax"] as [number,number]|undefined; return ci ? `${ci[0].toFixed(3)} – ${ci[1].toFixed(3)}` : null; },
-                },
-              ];
-
-              // Always show one row per replicate, even in Global fit mode —
-              // consistent regardless of whether Rmax happens to be shared.
-              // Shared parameters (ka, kd, and Rmax when shared) will simply
-              // repeat the same value across rows, which is expected.
-              const rowFits = fits;
-
-              return (
-                <table className="result-table" style={{ width: "auto" }}>
-                  <thead>
-                    <tr>
-                      <th></th>
-                      {specs.map(p => (
-                        <React.Fragment key={p.key}>
-                          <th style={{ whiteSpace: "nowrap", textTransform: "none" }}>
-                            {subscriptLabel(p.label)}
-                            {p.helpText && <HelpTip text={p.helpText} />}
-                            <span className="unit" style={{ fontWeight: 400, marginLeft: 4 }}>({p.unit})</span>
-                          </th>
-                          <th className="muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>SE<HelpTip text="Standard error from the Jacobian covariance matrix at the solution. May be absent if the fit is poorly conditioned or optimizer hit a bound." /></th>
-                          {showCi && <th className="muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>95% CI</th>}
-                        </React.Fragment>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rowFits.map((f, ri) => (
-                      <tr key={ri}>
-                        <th style={hasMultiRep ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
-                          {hasMultiRep ? `Rep ${ri + 1}` : "Value"}
-                        </th>
-                        {specs.map(p => {
-                          const val = p.getVal(f);
-                          const seStr = p.getSe(f);
-                          const ciStr = showCi ? p.getCi(f) : null;
-                          return (
-                            <React.Fragment key={p.key}>
-                              <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{val !== null ? p.fmt(val) : "—"}</td>
-                              <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{seStr ?? "—"}</td>
-                              {showCi && <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{ciStr ?? "—"}</td>}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              );
-            })()}
-          </div>
-
-          {/* Mean ± SD summary — shown consistently for any multi-replicate
-              fit, global or per-replicate. */}
-          {hasMultiRep && (() => {
-            type SummaryRow = { label: string; unit: string; mean: string | null; sd: string | null };
-            const rows: SummaryRow[] = [
-              { label: "ka", unit: "1/M·s", ...summarize(fits.map(f => f.params.ka), v => v.toExponential(4)) },
-              { label: "kd", unit: "1/s",   ...summarize(fits.map(f => f.params.kd), v => v.toExponential(4)) },
-              { label: "KD", unit: "M",     ...summarize(fits.map(f => f.params.KD), v => v.toExponential(4)) },
-              { label: "Rmax", unit: "RU",  ...summarize(fits.map(f => f.params.Rmax), v => v.toFixed(3)) },
-            ];
-            return (
-              <div style={{ marginTop: 16 }}>
-                <div className="muted" style={{ marginBottom: 6 }}>Summary ({fits.length} replicates)</div>
-                {isGlobalFit && (
-                  <div className="muted" style={{ fontSize: 12, marginBottom: 8, maxWidth: 560 }}>
-                    In a global fit, {subscriptLabel("ka")}/{subscriptLabel("kd")}{rmaxSharedInFit ? <> and {subscriptLabel("Rmax")}</> : null} are fitted as one shared value across all replicates by design, so their SD here is 0 — that's expected, not an error. It does <em>not</em> mean the parameter is known with zero uncertainty: see the SE column in the table above for its actual estimated uncertainty.
-                  </div>
-                )}
-                <table className="result-table">
-                  <thead>
-                    <tr>
-                      <th style={{ textTransform: "none" }}>Parameter</th>
-                      <th style={{ textTransform: "none" }}>Mean</th>
-                      <th style={{ textTransform: "none" }}>SD</th>
-                      <th style={{ textTransform: "none" }}>Unit</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map(r => (
-                      <tr key={r.label}>
-                        <th style={{ textTransform: "none" }}>{subscriptLabel(r.label)}</th>
-                        <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{r.mean ?? "—"}</td>
-                        <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{r.sd ?? "—"}</td>
-                        <td className="unit" style={{ textAlign: "left" }}>{r.unit}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
-
-          <div style={{ marginTop: 16, display: "flex", gap: 24, flexWrap: "wrap" }}>
-            {/* Fit quality */}
-            <div style={{ overflowX: "auto" }}>
-              <div className="muted" style={{ marginBottom: 6 }}>Fit quality</div>
-              {fits.length > 0 && (() => {
-                return (
-                  <table className="result-table" style={{ width: "auto" }}>
-                    <thead>
-                      <tr>
-                        <th></th>
-                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>RMSE <span className="unit" style={{ fontWeight: 400 }}>(RU)</span><HelpTip text="Root Mean Square Error between data and model fit (RU). Lower is better; compare across replicates to detect outliers." /></th>
-                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>R²<HelpTip text="Coefficient of determination. Values close to 1 indicate a good fit. Can be misleading for non-linear models — inspect residuals too." /></th>
-                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>Durbin-Watson<HelpTip text="Tests for autocorrelation in residuals. Values near 2 = no autocorrelation (good). Values far from 2 suggest systematic misfits or a wrong model." /></th>
-                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>N points</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fits.map((f, ri) => (
-                        <tr key={ri}>
-                          <th style={fits.length > 1 ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
-                            {fits.length > 1 ? `Rep ${ri + 1}` : "Value"}
-                          </th>
-                          <td className="mono" style={{ fontSize: 12 }}>{f.fit_quality.rmse.toFixed(4)}</td>
-                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.r2) ? f.fit_quality.r2.toFixed(4) : "—"}</td>
-                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.dw) ? f.fit_quality.dw.toFixed(3) : "—"}</td>
-                          <td className="mono" style={{ fontSize: 12 }}>{Math.round(f.fit_quality.n_points)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                );
-              })()}
-              {fits.some(f => f.warnings && f.warnings.length > 0) && (
-                <div className="muted" style={{ marginTop: 8 }}>
-                  {fits.flatMap((f, ri) => (f.warnings ?? []).map((w, wi) => (
-                    <div key={`${ri}-${wi}`}>{hasMultiRep ? `Rep ${ri + 1}: ` : ""}⚠ {w}</div>
-                  )))}
-                </div>
-              )}
-            </div>
-
-            {/* Bulk offsets */}
-            {fits.some(f => (f.params.bulk_offsets_RU?.length ?? 0) > 0) && (() => {
-              const maxBulkCount = Math.max(0, ...fits.map(f => f.params.bulk_offsets_RU?.length ?? 0));
-              return (
-                <div style={{ overflowX: "auto" }}>
-                  <div className="muted" style={{ marginBottom: 6 }}>
-                    Bulk offsets
-                    <HelpTip text="Per-injection baseline offset fitted to account for bulk refractive index shifts at each injection transition." />
-                  </div>
-                  <table className="result-table" style={{ width: "auto" }}>
-                    <thead>
-                      <tr>
-                        <th></th>
-                        {Array.from({ length: maxBulkCount }, (_, idx) => (
-                          <th key={idx} style={{ textTransform: "none", whiteSpace: "nowrap" }}>
-                            Inj {idx + 1} <span className="unit">(RU)</span>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fits.map((f, ri) => (
-                        <tr key={ri}>
-                          <th style={fits.length > 1 ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
-                            {fits.length > 1 ? `Rep ${ri + 1}` : "Value"}
-                          </th>
-                          {Array.from({ length: maxBulkCount }, (_, idx) => {
-                            const v = f.params.bulk_offsets_RU?.[idx];
-                            return (
-                              <td key={idx} className="mono" style={{ fontSize: 12 }}>
-                                {v !== undefined ? v.toFixed(3) : "—"}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              );
-            })()}
-          </div>
-
-        {fits.some(f => f.bootstrap && f.bootstrap.n > 0) && (
-          <div className="muted" style={{ marginTop: 6 }}>
-            Bootstrap:{" "}
-            {(isGlobalFit ? [fits[0]] : fits).map((f, ri) =>
-              f.bootstrap && f.bootstrap.n > 0
-                ? `${hasMultiRep ? `Rep ${ri + 1}: ` : ""}${f.bootstrap.success}/${f.bootstrap.n} successful${f.bootstrap.failed ? ` (${f.bootstrap.failed} failed)` : ""}`
-                : null
-            ).filter(Boolean).join(" · ")}.
-          </div>
-        )}
-        <div className="row" style={{ marginTop: 8 }}>
-          <button className="secondary" onClick={() => allParamsCsv && downloadText("sckanalyzer-parameters.csv", allParamsCsv)} disabled={!allParamsCsv}>Export CSV</button>
-        </div>
-      </div>
-    )}
 
     {/* ── Plots card ── */}
     {fits.length > 0 && (
@@ -830,6 +584,255 @@ export default function FitResultsSection({
               Download all exports (ZIP)
             </button>
           </div>
+      </div>
+    )}
+
+    {/* ── Parameters + quality card ── */}
+    {fits.length > 0 && (
+      <div className="card">
+        <h3>Fit results</h3>
+          {/* Parameters table — transposed: params as columns, replicates as rows */}
+          <div style={{ overflowX: "auto" }}>
+            {fits.length > 0 && (() => {
+              const showCi = fits.some(f => f.bootstrap?.ci95 && Object.keys(f.bootstrap.ci95).length > 0);
+
+              type ParamSpec = {
+                key: string; label: string; unit: string; helpText?: string;
+                getVal: (f: FitResult) => number | null;
+                fmt: (v: number) => React.ReactNode;
+                fmtPlain: (v: number) => string;
+                getSe: (f: FitResult) => string | null;
+                getCi: (f: FitResult) => string | null;
+              };
+
+              const specs: ParamSpec[] = [
+                {
+                  key: "ka", label: "ka", unit: "1/M·s",
+                  helpText: "Association rate constant (on-rate): how fast the analyte binds the ligand. Units: M⁻¹s⁻¹.",
+                  getVal: f => f.params.ka,
+                  fmt: v => v.toExponential(4),
+                  fmtPlain: v => v.toExponential(4),
+                  getSe: f => fmtSe(f).ka,
+                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["ka"] as [number,number]|undefined; return ci ? `${ci[0].toExponential(3)} – ${ci[1].toExponential(3)}` : null; },
+                },
+                {
+                  key: "kd", label: "kd", unit: "1/s",
+                  helpText: "Dissociation rate constant (off-rate): how fast the analyte–ligand complex falls apart. Units: s⁻¹.",
+                  getVal: f => f.params.kd,
+                  fmt: v => v.toExponential(4),
+                  fmtPlain: v => v.toExponential(4),
+                  getSe: f => fmtSe(f).kd,
+                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["kd"] as [number,number]|undefined; return ci ? `${ci[0].toExponential(3)} – ${ci[1].toExponential(3)}` : null; },
+                },
+                {
+                  key: "KD", label: "KD", unit: "M",
+                  helpText: "Equilibrium dissociation constant = kd / ka. Lower values indicate tighter binding. Units: M.",
+                  getVal: f => f.params.KD,
+                  fmt: v => v.toExponential(4),
+                  fmtPlain: v => v.toExponential(4),
+                  getSe: f => fmtSe(f).KD,
+                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["KD"] as [number,number]|undefined; return ci ? `${ci[0].toExponential(3)} – ${ci[1].toExponential(3)}` : null; },
+                },
+                {
+                  key: "Rmax", label: "Rmax", unit: "RU",
+                  helpText: "Maximum binding capacity. Signal expected when all ligand sites are occupied. Units: RU.",
+                  getVal: f => f.params.Rmax,
+                  fmt: v => v.toFixed(3),
+                  fmtPlain: v => v.toFixed(3),
+                  getSe: f => fmtSe(f).Rmax,
+                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["Rmax"] as [number,number]|undefined; return ci ? `${ci[0].toFixed(3)} – ${ci[1].toFixed(3)}` : null; },
+                },
+              ];
+
+              // When ka, kd, and Rmax are all shared, every replicate's row
+              // would be identical — collapse to a single "Global fit" row
+              // instead of repeating the same numbers once per replicate.
+              const rowFits = showSingleGlobalRow ? fits.slice(0, 1) : fits;
+
+              return (
+                <table className="result-table" style={{ width: "auto" }}>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      {specs.map(p => (
+                        <React.Fragment key={p.key}>
+                          <th style={{ whiteSpace: "nowrap", textTransform: "none" }}>
+                            {subscriptLabel(p.label)}
+                            {p.helpText && <HelpTip text={p.helpText} />}
+                            <span className="unit" style={{ fontWeight: 400, marginLeft: 4 }}>({p.unit})</span>
+                          </th>
+                          <th className="muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>SE<HelpTip text="Standard error from the Jacobian covariance matrix at the solution. May be absent if the fit is poorly conditioned or optimizer hit a bound." /></th>
+                          {showCi && <th className="muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>95% CI</th>}
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rowFits.map((f, ri) => (
+                      <tr key={ri}>
+                        <th style={hasMultiRep && !showSingleGlobalRow ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
+                          {showSingleGlobalRow ? "Global fit" : hasMultiRep ? `Rep ${ri + 1}` : "Value"}
+                        </th>
+                        {specs.map(p => {
+                          const val = p.getVal(f);
+                          const seStr = p.getSe(f);
+                          const ciStr = showCi ? p.getCi(f) : null;
+                          return (
+                            <React.Fragment key={p.key}>
+                              <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{val !== null ? p.fmt(val) : "—"}</td>
+                              <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{seStr ?? "—"}</td>
+                              {showCi && <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{ciStr ?? "—"}</td>}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
+          </div>
+
+          {/* Mean ± SD summary. Hidden entirely for a fully-shared global fit
+              (every row above is identical, so a mean/SD would be vacuous).
+              For a global fit with an unshared Rmax, only Rmax varies across
+              replicates (ka/kd stay shared), so only its row is meaningful. */}
+          {hasMultiRep && !showSingleGlobalRow && (() => {
+            type SummaryRow = { label: string; unit: string; mean: string | null; sd: string | null };
+            const rows: SummaryRow[] = isGlobalFit
+              ? [
+                  { label: "Rmax", unit: "RU", ...summarize(fits.map(f => f.params.Rmax), v => v.toFixed(3)) },
+                ]
+              : [
+                  { label: "ka", unit: "1/M·s", ...summarize(fits.map(f => f.params.ka), v => v.toExponential(4)) },
+                  { label: "kd", unit: "1/s",   ...summarize(fits.map(f => f.params.kd), v => v.toExponential(4)) },
+                  { label: "KD", unit: "M",     ...summarize(fits.map(f => f.params.KD), v => v.toExponential(4)) },
+                  { label: "Rmax", unit: "RU",  ...summarize(fits.map(f => f.params.Rmax), v => v.toFixed(3)) },
+                ];
+            return (
+              <div style={{ marginTop: 16 }}>
+                <div className="muted" style={{ marginBottom: 6 }}>Summary ({fits.length} replicates)</div>
+                <table className="result-table">
+                  <thead>
+                    <tr>
+                      <th style={{ textTransform: "none" }}>Parameter</th>
+                      <th style={{ textTransform: "none" }}>Mean</th>
+                      <th style={{ textTransform: "none" }}>SD</th>
+                      <th style={{ textTransform: "none" }}>Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(r => (
+                      <tr key={r.label}>
+                        <th style={{ textTransform: "none" }}>{subscriptLabel(r.label)}</th>
+                        <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{r.mean ?? "—"}</td>
+                        <td className="mono" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{r.sd ?? "—"}</td>
+                        <td className="unit" style={{ textAlign: "left" }}>{r.unit}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+
+          <div style={{ marginTop: 16, display: "flex", gap: 24, flexWrap: "wrap" }}>
+            {/* Fit quality */}
+            <div style={{ overflowX: "auto" }}>
+              <div className="muted" style={{ marginBottom: 6 }}>Fit quality</div>
+              {fits.length > 0 && (() => {
+                return (
+                  <table className="result-table" style={{ width: "auto" }}>
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>RMSE <span className="unit" style={{ fontWeight: 400 }}>(RU)</span><HelpTip text="Root Mean Square Error between data and model fit (RU). Lower is better; compare across replicates to detect outliers." /></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>R²<HelpTip text="Coefficient of determination. Values close to 1 indicate a good fit. Can be misleading for non-linear models — inspect residuals too." /></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>Durbin-Watson<HelpTip text="Tests for autocorrelation in residuals. Values near 2 = no autocorrelation (good). Values far from 2 suggest systematic misfits or a wrong model." /></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>N points</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fits.map((f, ri) => (
+                        <tr key={ri}>
+                          <th style={fits.length > 1 ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
+                            {fits.length > 1 ? `Rep ${ri + 1}` : "Value"}
+                          </th>
+                          <td className="mono" style={{ fontSize: 12 }}>{f.fit_quality.rmse.toFixed(4)}</td>
+                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.r2) ? f.fit_quality.r2.toFixed(4) : "—"}</td>
+                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.dw) ? f.fit_quality.dw.toFixed(3) : "—"}</td>
+                          <td className="mono" style={{ fontSize: 12 }}>{Math.round(f.fit_quality.n_points)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              })()}
+              {fits.some(f => f.warnings && f.warnings.length > 0) && (
+                <div className="muted" style={{ marginTop: 8 }}>
+                  {fits.flatMap((f, ri) => (f.warnings ?? []).map((w, wi) => (
+                    <div key={`${ri}-${wi}`}>{hasMultiRep ? `Rep ${ri + 1}: ` : ""}⚠ {w}</div>
+                  )))}
+                </div>
+              )}
+            </div>
+
+            {/* Bulk offsets */}
+            {fits.some(f => (f.params.bulk_offsets_RU?.length ?? 0) > 0) && (() => {
+              const maxBulkCount = Math.max(0, ...fits.map(f => f.params.bulk_offsets_RU?.length ?? 0));
+              return (
+                <div style={{ overflowX: "auto" }}>
+                  <div className="muted" style={{ marginBottom: 6 }}>
+                    Bulk offsets
+                    <HelpTip text="Per-injection baseline offset fitted to account for bulk refractive index shifts at each injection transition." />
+                  </div>
+                  <table className="result-table" style={{ width: "auto" }}>
+                    <thead>
+                      <tr>
+                        <th></th>
+                        {Array.from({ length: maxBulkCount }, (_, idx) => (
+                          <th key={idx} style={{ textTransform: "none", whiteSpace: "nowrap" }}>
+                            Inj {idx + 1} <span className="unit">(RU)</span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fits.map((f, ri) => (
+                        <tr key={ri}>
+                          <th style={fits.length > 1 ? { color: repColor(ri), whiteSpace: "nowrap" } : { whiteSpace: "nowrap" }}>
+                            {fits.length > 1 ? `Rep ${ri + 1}` : "Value"}
+                          </th>
+                          {Array.from({ length: maxBulkCount }, (_, idx) => {
+                            const v = f.params.bulk_offsets_RU?.[idx];
+                            return (
+                              <td key={idx} className="mono" style={{ fontSize: 12 }}>
+                                {v !== undefined ? v.toFixed(3) : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </div>
+
+        {fits.some(f => f.bootstrap && f.bootstrap.n > 0) && (
+          <div className="muted" style={{ marginTop: 6 }}>
+            Bootstrap:{" "}
+            {(isGlobalFit ? [fits[0]] : fits).map((f, ri) =>
+              f.bootstrap && f.bootstrap.n > 0
+                ? `${hasMultiRep ? `Rep ${ri + 1}: ` : ""}${f.bootstrap.success}/${f.bootstrap.n} successful${f.bootstrap.failed ? ` (${f.bootstrap.failed} failed)` : ""}`
+                : null
+            ).filter(Boolean).join(" · ")}.
+          </div>
+        )}
+        <div className="row" style={{ marginTop: 8 }}>
+          <button className="secondary" onClick={() => allParamsCsv && downloadText("sckanalyzer-parameters.csv", allParamsCsv)} disabled={!allParamsCsv}>Export CSV</button>
+        </div>
       </div>
     )}
     </>

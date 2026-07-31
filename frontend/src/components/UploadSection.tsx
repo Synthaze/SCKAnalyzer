@@ -64,8 +64,10 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
       type: "scatter",
       mode: "lines",
       name: s.label,
-      line: { width: isPrimary ? 2 : 1 },
-      opacity: isPrimary ? 1 : 0.6,
+      line: { width: 2 },
+      // Non-active-dataset series start hidden but stay in the legend —
+      // clicking their legend entry (standard Plotly behavior) re-enables them.
+      visible: isPrimary ? true : "legendonly",
     };
   });
 
@@ -97,9 +99,12 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
     const opts: Array<{ key: string; label: string }> = [];
     for (const d of datasets) {
       if (!d.parsed || d.replicates.length === 0) continue;
-      d.replicates.forEach((_, ri) => {
+      d.replicates.forEach((rep, ri) => {
         if (d.id === excludeDatasetId && ri === excludeReplicateIndex) return;
-        const label = d.replicates.length > 1 ? `${d.label} · Series ${ri + 1}` : d.label;
+        const custom = rep.name.trim();
+        const label = custom
+          ? `${d.label} · ${custom}`
+          : d.replicates.length > 1 ? `${d.label} · Series ${ri + 1}` : d.label;
         opts.push({ key: `${d.id}__${ri}`, label });
       });
     }
@@ -161,7 +166,22 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                     merge
                   </label>
                 )}
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{ds.file.name}</span>
+                <input
+                  type="text"
+                  value={ds.label}
+                  onChange={(e) => updateDataset(ds.id, { label: e.target.value })}
+                  title="Dataset name (shown in legends and exports)"
+                  style={{
+                    fontWeight: 600, fontSize: 13, padding: "2px 6px", minWidth: 100,
+                    background: "transparent", color: "inherit",
+                    border: "1px solid transparent", borderRadius: 4,
+                  }}
+                  onFocus={(e) => { e.target.style.border = "1px solid var(--border, #555)"; }}
+                  onBlur={(e) => { e.target.style.border = "1px solid transparent"; }}
+                />
+                {ds.label !== ds.file.name && (
+                  <span className="muted" style={{ fontSize: 11 }}>({ds.file.name})</span>
+                )}
                 {ds.parsed && <span className="muted" style={{ fontSize: 12 }}>{ds.parsed.n_rows} rows</span>}
                 {ds.loading && <span className="muted" style={{ fontSize: 12 }}>Parsing…</span>}
                 {ds.error && <span style={{ color: "#f87171", fontSize: 12 }}>⚠ {ds.error}</span>}
@@ -190,9 +210,16 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                     alignItems: "flex-end",
                   }}
                 >
-                  <span className="muted" style={{ fontSize: 11, alignSelf: "flex-end", minWidth: 48 }}>
-                    Series {ri + 1}
-                  </span>
+                  <label style={{ fontSize: 12 }}>
+                    <span>Series name<HelpTip text="Optional custom name for this series, shown in legends, exports, and reference/blank selectors instead of the default 'Series N'." /></span>
+                    <input
+                      type="text"
+                      value={rep.name}
+                      placeholder={`Series ${ri + 1}`}
+                      onChange={(e) => updateReplicate(ds.id, ri, { name: e.target.value })}
+                      style={{ padding: "4px 6px", fontSize: 12, width: 110 }}
+                    />
+                  </label>
 
                   <label style={{ fontSize: 12 }}>
                     <span>Time (X)<HelpTip text="Column containing time values (seconds). Used as the x-axis of the sensorgram." /></span>

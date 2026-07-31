@@ -5,6 +5,7 @@ import { parseCsv } from "../api";
 export type Replicate = {
   xCol: string;
   yCol: string;
+  name: string;
   refReplicateKey: string;
   blankReplicateKey: string;
   normalizeBaseline: boolean;
@@ -74,7 +75,16 @@ function nextId() {
 function defaultReplicate(columns: string[]): Replicate {
   const xCol = guessColumn(columns, ["time", "seconds", "sec", "t", "x"]) || columns[0] || "";
   const yCol = guessColumn(columns, ["ru", "response", "signal", "y"]) || columns[1] || "";
-  return { xCol, yCol, refReplicateKey: "", blankReplicateKey: "", normalizeBaseline: false };
+  return { xCol, yCol, name: "", refReplicateKey: "", blankReplicateKey: "", normalizeBaseline: false };
+}
+
+// Falls back to "Series N" only when no custom name has been set, and only
+// qualifies the dataset label with a series suffix when there's more than
+// one series (a custom name is shown regardless, since the user asked for it).
+function seriesLabel(datasetLabel: string, rep: Pick<Replicate, "name">, ri: number, repCount: number): string {
+  const custom = rep.name.trim();
+  if (custom) return `${datasetLabel} · ${custom}`;
+  return repCount > 1 ? `${datasetLabel} · Series ${ri + 1}` : datasetLabel;
 }
 
 export function useFilesets(): UseFilesetsResult {
@@ -182,6 +192,7 @@ export function useFilesets(): UseFilesetsResult {
           replicates.push({
             xCol: newXCol || `${prefix}${d.parsed!.columns[0]}`,
             yCol: newYCol || `${prefix}${d.parsed!.columns[1] ?? d.parsed!.columns[0]}`,
+            name: rep.name,
             refReplicateKey: rep.refReplicateKey,
             blankReplicateKey: rep.blankReplicateKey,
             normalizeBaseline: rep.normalizeBaseline,
@@ -321,10 +332,7 @@ export function useFilesets(): UseFilesetsResult {
           y = y.map((v) => v - median);
         }
 
-        const label =
-          d.replicates.length > 1
-            ? `${d.label} · Series ${ri + 1}`
-            : d.label;
+        const label = seriesLabel(d.label, rep, ri, d.replicates.length);
 
         result.push({ id: key, datasetId: d.id, replicateIndex: ri, t: corrected.t, y, label });
       }
