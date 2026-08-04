@@ -17,7 +17,7 @@ export type FitQuality = {
   mae: number;
   aic: number;
   bic: number;
-  dw: number;
+  chi2: number;
   n_points: number;
   dof: number;
 };

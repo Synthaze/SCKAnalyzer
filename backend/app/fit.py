@@ -212,12 +212,11 @@ def _fit_quality_metrics(resid: np.ndarray, cost: float, nfev: int, k: int) -> D
             "dof": 0.0,
             "aic": float("nan"),
             "bic": float("nan"),
-            "dw": float("nan"),
+            "chi2": float("nan"),
         }
     rmse = float(np.sqrt(np.mean(resid**2)))
     mae = float(np.mean(np.abs(resid)))
     ss_res = float(np.sum(resid**2))
-    dw = float(np.sum(np.diff(resid)**2) / ss_res) if ss_res > 0 and resid.size > 1 else float("nan")
     # Note: R2 computed elsewhere with y-values
     if ss_res > 0 and n > 0:
         aic = float(n * np.log(ss_res / n) + 2 * k)
@@ -226,6 +225,11 @@ def _fit_quality_metrics(resid: np.ndarray, cost: float, nfev: int, k: int) -> D
         aic = float("nan")
         bic = float("nan")
     dof = float(max(1, n - k))
+    # Reduced chi-square (SSR / degrees of freedom): the standard SPR/BLI
+    # fit-quality metric when per-point measurement error isn't available,
+    # equivalent to assuming homoscedastic noise. Values near the residual
+    # variance are expected; much larger than that indicates a poor fit.
+    chi2 = float(ss_res / dof) if dof > 0 else float("nan")
     return {
         "rmse": rmse,
         "mae": mae,
@@ -235,7 +239,7 @@ def _fit_quality_metrics(resid: np.ndarray, cost: float, nfev: int, k: int) -> D
         "dof": dof,
         "aic": aic,
         "bic": bic,
-        "dw": dw,
+        "chi2": chi2,
     }
 
 def _covariance_from_jacobian(J: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[float]]:

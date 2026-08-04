@@ -796,7 +796,7 @@ export default function FitResultsSection({
                         <th></th>
                         <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>RMSE <span className="unit" style={{ fontWeight: 400 }}>(RU)</span><HelpTip text="Root Mean Square Error between data and model fit (RU). Lower is better; compare across replicates to detect outliers." /></th>
                         <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>R²<HelpTip text="Coefficient of determination. Values close to 1 indicate a good fit. Can be misleading for non-linear models — inspect residuals too." /></th>
-                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>Durbin-Watson<HelpTip text="Tests for autocorrelation in residuals. Values near 2 = no autocorrelation (good). Values far from 2 suggest systematic misfits or a wrong model." /></th>
+                        <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>Chi<sup>2</sup><HelpTip text="Reduced chi-square: residual sum of squares divided by degrees of freedom. Lower is better; a much larger value than the residual noise variance indicates a poor fit." /></th>
                         <th style={{ textTransform: "none", whiteSpace: "nowrap" }}>N points</th>
                       </tr>
                     </thead>
@@ -808,7 +808,7 @@ export default function FitResultsSection({
                           </th>
                           <td className="mono" style={{ fontSize: 12 }}>{f.fit_quality.rmse.toFixed(4)}</td>
                           <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.r2) ? f.fit_quality.r2.toFixed(4) : "—"}</td>
-                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.dw) ? f.fit_quality.dw.toFixed(3) : "—"}</td>
+                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.chi2) ? f.fit_quality.chi2.toFixed(4) : "—"}</td>
                           <td className="mono" style={{ fontSize: 12 }}>{Math.round(f.fit_quality.n_points)}</td>
                         </tr>
                       ))}
