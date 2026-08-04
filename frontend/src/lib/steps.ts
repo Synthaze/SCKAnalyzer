@@ -97,19 +97,23 @@ export function buildOverlapCsv(
   return rows.join("\n");
 }
 
+// Side-by-side (wide) layout: each series (one per injection × data/fit) gets
+// its own time/response column pair instead of being appended as extra rows,
+// so curves line up for spreadsheet comparison. Shorter series are blank-padded.
 export function buildOverlapPhaseCsv(
   phase: "assoc" | "dissoc",
   series: Array<any>,
   normalized: boolean,
   baselineSource: "data" | "fit"
 ) {
-  const rows: string[] = [];
-  rows.push("phase,inj,label,time_since_phase_s,response_ru,normalized,baseline_source");
-  for (const s of series) {
-    const inj = s.name.split(" ")[1] || "";
-    for (let i = 0; i < s.x.length; i++) {
-      rows.push(`${phase},${inj},${s.name},${s.x[i]},${s.y[i]},${normalized},${baselineSource}`);
-    }
+  if (series.length === 0) return "";
+  const maxLen = Math.max(...series.map((s) => s.x.length));
+  const meta = `# phase=${phase}, normalized=${normalized}, baseline_source=${baselineSource}`;
+  const header = series.flatMap((s) => [`${s.name}_time_since_phase_s`, `${s.name}_response_ru`]).join(",");
+  const rows = [meta, header];
+  for (let i = 0; i < maxLen; i++) {
+    const cells = series.flatMap((s) => (i < s.x.length ? [String(s.x[i]), String(s.y[i])] : ["", ""]));
+    rows.push(cells.join(","));
   }
   return rows.join("\n");
 }

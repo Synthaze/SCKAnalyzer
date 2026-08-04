@@ -10,6 +10,7 @@ import pandas as pd
 from .csv_parser import parse_csv
 from .frd_parser import parse_frd
 from .fit import fit_sck_11_biacore, fit_global_sck_11_biacore, build_steps_from_conc, validate_steps
+from .jsonsafe import json_safe
 
 app = FastAPI(title="SCKAnalyzer API", version="0.2.0")
 
@@ -61,10 +62,10 @@ async def api_parse(
     filename = file.filename or ""
     if filename.lower().endswith(".frd"):
         try:
-            return parse_frd(content, filename=filename)
+            return json_safe(parse_frd(content, filename=filename))
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
-    return parse_csv(content, delimiter=delimiter, filename=filename)
+    return json_safe(parse_csv(content, delimiter=delimiter, filename=filename))
 
 @app.post("/api/fit")
 async def api_fit(
@@ -227,7 +228,7 @@ async def api_fit(
         "n_rows": int(len(arr[time_col])),
         "n_fit": int(len(t)),
     }
-    return result
+    return json_safe(result)
 
 
 @app.post("/api/fit_global")
@@ -355,4 +356,4 @@ async def api_fit_global(
         bounds_override=bounds,
         fixed_params=fixed,
     )
-    return {"fit_mode": "global", "replicates": results}
+    return json_safe({"fit_mode": "global", "replicates": results})

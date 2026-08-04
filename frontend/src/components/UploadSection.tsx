@@ -22,15 +22,29 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
     computedSeries, primaryId, setPrimaryId, primaryDataset,
   } = filesets;
 
-  const activeSeries = computedSeries.find(
+  // All series belonging to the active dataset — a merged/multi-replicate
+  // dataset has more than one, and every one of them must be exported.
+  const activeDatasetSeries = computedSeries.filter(
     (s) => s.datasetId === (primaryId || primaryDataset?.id)
   );
 
   const sensorgramCsv = useMemo(() => {
-    if (!activeSeries || activeSeries.t.length === 0) return "";
-    const rows = activeSeries.t.map((tv, i) => `${tv},${activeSeries.y[i]}`);
-    return ["time_s,response_ru", ...rows].join("\n");
-  }, [activeSeries]);
+    if (activeDatasetSeries.length === 0) return "";
+    const maxLen = Math.max(...activeDatasetSeries.map((s) => s.t.length));
+    if (maxLen === 0) return "";
+    const header = activeDatasetSeries
+      .flatMap((s) => [`${s.label}_time_s`, `${s.label}_response_ru`])
+      .join(",");
+    const rows: string[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const cells = activeDatasetSeries.flatMap((s) => [
+        i < s.t.length ? String(s.t[i]) : "",
+        i < s.y.length ? String(s.y[i]) : "",
+      ]);
+      rows.push(cells.join(","));
+    }
+    return [header, ...rows].join("\n");
+  }, [activeDatasetSeries]);
 
   const datasetCsv = useMemo(() => {
     if (!primaryDataset?.parsed) return "";

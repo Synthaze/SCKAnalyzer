@@ -153,38 +153,53 @@ export default function FitResultsSection({
         x: f.series.t, y: f.series.y,
         type: "scatter", mode: "lines",
         name: `Rep ${ri + 1} data`,
-        line: { color: repColor(ri), width: 1, dash: "dot" as const },
+        line: { color: repColor(ri), width: 1.75 },
         opacity: 0.7,
       }));
       const fitTrace: Plotly.Data = {
         x: fits[0].series.t, y: fits[0].series.yhat,
         type: "scatter", mode: "lines",
         name: "Global fit",
-        line: { color: "#dc2626", width: 2.5 },
+        line: { color: "#000000", width: 1.0 },
       };
       return [...dataTraces, fitTrace];
     }
-    return fits.flatMap((f, ri) => [
+    // Per-replicate mode with multiple replicates: show only the selected
+    // replicate (switched via the Rep N buttons), styled like the global
+    // fit plot — plain colored data line, black fit line — instead of
+    // overlaying every replicate at once.
+    const f = fits[Math.min(selectedRepIdx, fits.length - 1)];
+    if (!f) return [];
+    return [
       {
         x: f.series.t, y: f.series.y,
         type: "scatter", mode: "lines",
-        name: `Rep ${ri + 1} data`,
-        line: { color: repColor(ri), width: 1, dash: "dot" as const },
-        opacity: 0.65,
+        name: `Rep ${selectedRepIdx + 1} data`,
+        line: { color: repColor(selectedRepIdx), width: 1.75 },
       },
       {
         x: f.series.t, y: f.series.yhat,
         type: "scatter", mode: "lines",
-        name: `Rep ${ri + 1} fit`,
-        line: { color: repColor(ri), width: 2 },
+        name: `Rep ${selectedRepIdx + 1} fit`,
+        line: { color: "#000000", width: 1.0 },
       },
-    ]);
-  }, [fits, hasMultiRep, isGlobalFit]);
+    ];
+  }, [fits, hasMultiRep, isGlobalFit, selectedRepIdx]);
 
   const combinedResidData = useMemo<Plotly.Data[]>(() => {
     if (!hasMultiRep && fits[0]) {
       const f = fits[0];
       return [{ x: f.series.t, y: f.series.residual, type: "scatter", mode: "lines", name: "Residual", line: { color: "#7c3aed" } }];
+    }
+    if (!isGlobalFit) {
+      const f = fits[Math.min(selectedRepIdx, fits.length - 1)];
+      if (!f) return [];
+      return [{
+        x: f.series.t, y: f.series.residual,
+        type: "scatter", mode: "lines",
+        name: `Rep ${selectedRepIdx + 1}`,
+        line: { color: repColor(selectedRepIdx), width: 1.5 },
+      }];
     }
     return fits.map((f, ri) => ({
       x: f.series.t, y: f.series.residual,
@@ -192,7 +207,7 @@ export default function FitResultsSection({
       name: `Rep ${ri + 1}`,
       line: { color: repColor(ri), width: 1.5 },
     }));
-  }, [fits, hasMultiRep]);
+  }, [fits, hasMultiRep, isGlobalFit, selectedRepIdx]);
 
   // ── Overlap for the selected replicate ───────────
   const overlapSeries = useMemo(() => {
@@ -283,33 +298,54 @@ export default function FitResultsSection({
     return fits.map((f, ri) => buildParamsCsv(f, fits.length > 1 ? `Rep ${ri+1}` : undefined)).join("\n\n");
   }, [fits]);
 
-  const buildFitCsv = (fit: FitResult, repLabel?: string) => {
-    const rows = ["plot,replicate,label,time_s,response_ru"];
-    const rep = repLabel ?? "1";
-    for (let i = 0; i < fit.series.t.length; i++)
-      rows.push(["fit", rep, "data", fit.series.t[i], fit.series.y[i]].join(","));
-    for (let i = 0; i < fit.series.t.length; i++)
-      rows.push(["fit", rep, "fit", fit.series.t[i], fit.series.yhat[i]].join(","));
-    return rows.join("\n");
-  };
+  // Exports mirror what's actually on screen: in per-replicate mode with the
+  // Rep N switcher, only the currently-displayed replicate is exported;
+  // global fit (and single-replicate) exports still cover every replicate,
+  // since those plots always show all of them at once.
+  const displayedFits = useMemo(() => {
+    if (hasMultiRep && !isGlobalFit) {
+      const f = fits[Math.min(selectedRepIdx, fits.length - 1)];
+      return f ? [{ f, ri: selectedRepIdx }] : [];
+    }
+    return fits.map((f, ri) => ({ f, ri }));
+  }, [fits, hasMultiRep, isGlobalFit, selectedRepIdx]);
 
+  // Side-by-side (wide) layout: each replicate gets its own block of columns
+  // rather than being appended as extra rows, so series line up for
+  // spreadsheet comparison. Replicates with fewer points are blank-padded.
   const allFitCsv = useMemo(() => {
-    if (!fits.length) return "";
-    return fits.map((f, ri) => buildFitCsv(f, `Rep ${ri+1}`)).join("\n");
-  }, [fits]);
-
-  const buildResidCsv = (fit: FitResult, repLabel?: string) => {
-    const rows = ["plot,replicate,time_s,residual_ru"];
-    const rep = repLabel ?? "1";
-    for (let i = 0; i < fit.series.t.length; i++)
-      rows.push(["residual", rep, fit.series.t[i], fit.series.residual[i]].join(","));
+    if (!displayedFits.length) return "";
+    const labels = displayedFits.map(({ ri }) => (fits.length > 1 ? `Rep ${ri + 1}` : "Value"));
+    const maxLen = Math.max(...displayedFits.map(({ f }) => f.series.t.length));
+    const header = displayedFits.flatMap((_, i) => [`${labels[i]}_time_s`, `${labels[i]}_data_ru`, `${labels[i]}_fit_ru`]).join(",");
+    const rows = [header];
+    for (let i = 0; i < maxLen; i++) {
+      const cells = displayedFits.flatMap(({ f }) =>
+        i < f.series.t.length
+          ? [String(f.series.t[i]), String(f.series.y[i]), String(f.series.yhat[i])]
+          : ["", "", ""]
+      );
+      rows.push(cells.join(","));
+    }
     return rows.join("\n");
-  };
+  }, [displayedFits, fits.length]);
 
   const allResidCsv = useMemo(() => {
-    if (!fits.length) return "";
-    return fits.map((f, ri) => buildResidCsv(f, `Rep ${ri+1}`)).join("\n");
-  }, [fits]);
+    if (!displayedFits.length) return "";
+    const labels = displayedFits.map(({ ri }) => (fits.length > 1 ? `Rep ${ri + 1}` : "Value"));
+    const maxLen = Math.max(...displayedFits.map(({ f }) => f.series.t.length));
+    const header = displayedFits.flatMap((_, i) => [`${labels[i]}_time_s`, `${labels[i]}_residual_ru`]).join(",");
+    const rows = [header];
+    for (let i = 0; i < maxLen; i++) {
+      const cells = displayedFits.flatMap(({ f }) =>
+        i < f.series.t.length
+          ? [String(f.series.t[i]), String(f.series.residual[i])]
+          : ["", ""]
+      );
+      rows.push(cells.join(","));
+    }
+    return rows.join("\n");
+  }, [displayedFits, fits.length]);
 
   const rmseCsv = useMemo(() => {
     if (!overlapRmse.length) return "";
@@ -457,9 +493,21 @@ export default function FitResultsSection({
     {fits.length > 0 && (
       <div className="card">
           <div className="plots">
+            {hasMultiRep && !isGlobalFit && (
+              <div className="row" style={{ gap: 4, marginBottom: 8 }}>
+                {fits.map((_, ri) => (
+                  <button key={ri}
+                    className={selectedRepIdx === ri ? "primary" : "secondary"}
+                    style={{ padding: "2px 10px", fontSize: 11 }}
+                    onClick={() => setSelectedRepIdx(ri)}>
+                    Rep {ri + 1}
+                  </button>
+                ))}
+              </div>
+            )}
             <Plot
               data={combinedFitData}
-              layout={{ ...fitLayout, title: { text: hasMultiRep ? (isGlobalFit ? `Global Fit (shared k<sub>a</sub>/k<sub>d</sub>${rmaxSharedInFit ? "/R<sub>max</sub>" : ""}) — all replicates` : "Per-replicate fits") : "Fit (Data + Model)", font: { color: "#1c1916", size: 14 } } } as any}
+              layout={{ ...fitLayout, title: { text: hasMultiRep ? (isGlobalFit ? `Global Fit (shared k<sub>a</sub>/k<sub>d</sub>${rmaxSharedInFit ? "/R<sub>max</sub>" : ""}) — all replicates` : `Fit — Rep ${selectedRepIdx + 1}`) : "Fit (Data + Model)", font: { color: "#1c1916", size: 14 } } } as any}
               style={{ width: "100%", height: "380px" }}
               useResizeHandler
               config={{ responsive: true, displaylogo: false }}
@@ -472,7 +520,7 @@ export default function FitResultsSection({
             </div>
             <Plot
               data={combinedResidData}
-              layout={{ ...residLayout, title: { text: hasMultiRep ? "Residuals — all replicates" : "Residuals", font: { color: "#1c1916", size: 14 } } } as any}
+              layout={{ ...residLayout, title: { text: hasMultiRep ? (isGlobalFit ? "Residuals — all replicates" : `Residuals — Rep ${selectedRepIdx + 1}`) : "Residuals", font: { color: "#1c1916", size: 14 } } } as any}
               style={{ width: "100%", height: "260px" }}
               useResizeHandler
               config={{ responsive: true, displaylogo: false }}
