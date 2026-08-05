@@ -104,7 +104,7 @@ export default function FitResultsSection({
     legend: { orientation: "h" as const, y: -0.3, yanchor: "top", x: 0, xanchor: "left" },
     xaxis: { title: { text: "Time (s)" }, automargin: true },
     yaxis: {
-      title: { text: refCol ? "Response (RU, ref-subtracted)" : "Response (RU)" },
+      title: { text: refCol ? "Response (ref-subtracted)" : "Response" },
       automargin: true,
     },
   }), [baseLayout, refCol]);
@@ -125,7 +125,7 @@ export default function FitResultsSection({
     showlegend: overlapShowLegend,
     legend: { orientation: "h" as const, y: -0.35, yanchor: "top", x: 0, xanchor: "left" },
     xaxis: { title: { text: "Time since association start (s)" }, automargin: true },
-    yaxis: { title: { text: overlapNormalize ? "ΔResponse (RU)" : "Response (RU)" }, automargin: true },
+    yaxis: { title: { text: overlapNormalize ? "ΔResponse" : "Response" }, automargin: true },
   };
 
   const overlapDissLayout = {
@@ -135,7 +135,7 @@ export default function FitResultsSection({
     showlegend: overlapShowLegend,
     legend: { orientation: "h" as const, y: -0.35, yanchor: "top", x: 0, xanchor: "left" },
     xaxis: { title: { text: "Time since dissociation start (s)" }, automargin: true },
-    yaxis: { title: { text: overlapNormalize ? "ΔResponse (RU)" : "Response (RU)" }, automargin: true },
+    yaxis: { title: { text: overlapNormalize ? "ΔResponse" : "Response" }, automargin: true },
   };
 
   // ── Combined fit + residuals plot data ────────────
@@ -287,9 +287,9 @@ export default function FitResultsSection({
     add("KD", fit.params.KD.toExponential(4), "M",
       seKDLog !== null ? seKDLog.toExponential(3) : "",
       ci["KD"] ? ci["KD"][0].toExponential(3) : "", ci["KD"] ? ci["KD"][1].toExponential(3) : "");
-    add("Rmax", fit.params.Rmax.toFixed(3), "RU",
-      fit.standard_errors?.Rmax?.toFixed(3) ?? "",
-      ci["Rmax"] ? ci["Rmax"][0].toFixed(3) : "", ci["Rmax"] ? ci["Rmax"][1].toFixed(3) : "");
+    add("Rmax", fit.params.Rmax.toExponential(4), "RU",
+      fit.standard_errors?.Rmax?.toExponential(3) ?? "",
+      ci["Rmax"] ? ci["Rmax"][0].toExponential(3) : "", ci["Rmax"] ? ci["Rmax"][1].toExponential(3) : "");
     return rows.join("\n");
   };
 
@@ -362,7 +362,7 @@ export default function FitResultsSection({
     const kdLogSe = fit.standard_errors?.log10_kd;
     const KD  = kaLogSe !== undefined && kdLogSe !== undefined
       ? (fit.params.KD * Math.LN10 * Math.sqrt(kaLogSe**2 + kdLogSe**2)).toExponential(3) : null;
-    const Rmax = fit.standard_errors?.Rmax?.toFixed(3) ?? null;
+    const Rmax = fit.standard_errors?.Rmax?.toExponential(3) ?? null;
     return { ka, kd, KD, Rmax };
   };
 
@@ -685,10 +685,10 @@ export default function FitResultsSection({
                   key: "Rmax", label: "Rmax", unit: "RU",
                   helpText: "Maximum binding capacity. Signal expected when all ligand sites are occupied. Units: RU.",
                   getVal: f => f.params.Rmax,
-                  fmt: v => v.toFixed(3),
-                  fmtPlain: v => v.toFixed(3),
+                  fmt: v => v.toExponential(4),
+                  fmtPlain: v => v.toExponential(4),
                   getSe: f => fmtSe(f).Rmax,
-                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["Rmax"] as [number,number]|undefined; return ci ? `${ci[0].toFixed(3)} – ${ci[1].toFixed(3)}` : null; },
+                  getCi: f => { const ci = (f.bootstrap?.ci95 ?? {})["Rmax"] as [number,number]|undefined; return ci ? `${ci[0].toExponential(3)} – ${ci[1].toExponential(3)}` : null; },
                 },
               ];
 
@@ -749,13 +749,13 @@ export default function FitResultsSection({
             type SummaryRow = { label: string; unit: string; mean: string | null; sd: string | null };
             const rows: SummaryRow[] = isGlobalFit
               ? [
-                  { label: "Rmax", unit: "RU", ...summarize(fits.map(f => f.params.Rmax), v => v.toFixed(3)) },
+                  { label: "Rmax", unit: "RU", ...summarize(fits.map(f => f.params.Rmax), v => v.toExponential(4)) },
                 ]
               : [
                   { label: "ka", unit: "1/M·s", ...summarize(fits.map(f => f.params.ka), v => v.toExponential(4)) },
                   { label: "kd", unit: "1/s",   ...summarize(fits.map(f => f.params.kd), v => v.toExponential(4)) },
                   { label: "KD", unit: "M",     ...summarize(fits.map(f => f.params.KD), v => v.toExponential(4)) },
-                  { label: "Rmax", unit: "RU",  ...summarize(fits.map(f => f.params.Rmax), v => v.toFixed(3)) },
+                  { label: "Rmax", unit: "RU",  ...summarize(fits.map(f => f.params.Rmax), v => v.toExponential(4)) },
                 ];
             return (
               <div style={{ marginTop: 16 }}>
@@ -808,7 +808,7 @@ export default function FitResultsSection({
                           </th>
                           <td className="mono" style={{ fontSize: 12 }}>{f.fit_quality.rmse.toFixed(4)}</td>
                           <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.r2) ? f.fit_quality.r2.toFixed(4) : "—"}</td>
-                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.chi2) ? f.fit_quality.chi2.toFixed(4) : "—"}</td>
+                          <td className="mono" style={{ fontSize: 12 }}>{Number.isFinite(f.fit_quality.chi2) ? f.fit_quality.chi2.toExponential(4) : "—"}</td>
                           <td className="mono" style={{ fontSize: 12 }}>{Math.round(f.fit_quality.n_points)}</td>
                         </tr>
                       ))}

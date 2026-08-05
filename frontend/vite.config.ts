@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    allowedHosts: ["sck.iecb.u-bordeaux.fr"],
     proxy: {
       "/api": "http://localhost:8000",
     },

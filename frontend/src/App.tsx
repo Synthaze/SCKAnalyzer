@@ -135,9 +135,9 @@ export default function App() {
           <div className="h1">SCKAnalyzer</div>
           <div className="sub">Workflow for single-cycle kinetics fitting.</div>
           <div className="header-meta">
-            <span className="chip">React + Vite</span>
-            <span className="chip">FastAPI</span>
+            <span className="chip">SCK</span>
             <span className="chip">1:1 Langmuir</span>
+            <span className="chip">Global fitting</span>
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, flexShrink: 0 }}>

@@ -90,7 +90,7 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
     xaxis: { title: { text: "Time (s)" }, automargin: true },
-    yaxis: { title: { text: "Response (RU)" }, automargin: true },
+    yaxis: { title: { text: "Response" }, automargin: true },
     title: { text: "Sensorgram preview", font: { color: "#1c1916", size: 14 } },
     showlegend: computedSeries.length > 1,
     legend: { orientation: "h" as const, y: -0.3, yanchor: "top", x: 0, xanchor: "left" },

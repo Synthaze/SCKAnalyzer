@@ -16,8 +16,13 @@ export default function IntroductionSection() {
       <p>
         Source code: <a href="https://github.com/Synthaze/SCKAnalyzer" target="_blank" rel="noopener noreferrer">github.com/synthaze/sckanalyzer</a>
       </p>
+      <p>
+        Sample data: <a href="/statics/data/SCK4.zip" download>SCK4.zip</a>
+      </p>
 
-      <div
+      <video
+        src="/statics/mp4/sckanalyzer.mp4"
+        controls
         style={{
           marginTop: 16,
           marginBottom: 16,
@@ -26,16 +31,11 @@ export default function IntroductionSection() {
           aspectRatio: "16 / 9",
           marginLeft: "auto",
           marginRight: "auto",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          border: "1px dashed var(--border-hi)",
+          display: "block",
           borderRadius: "var(--r)",
           background: "var(--surface)",
         }}
-      >
-        <span className="muted">Tutorial video — coming soon</span>
-      </div>
+      />
 
       <div
         style={{

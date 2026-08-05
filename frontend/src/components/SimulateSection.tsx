@@ -177,7 +177,7 @@ export default function SimulateSection() {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
     xaxis: { title: { text: "Time (s)" }, automargin: true },
-    yaxis: { title: { text: "Response (RU)" }, automargin: true },
+    yaxis: { title: { text: "Response" }, automargin: true },
     title: { text: "Simulated SCK Sensorgram", font: { color: "#1c1916", size: 14 } },
     showlegend: noiseSigma > 0,
     shapes: steps.map((s) => ({
