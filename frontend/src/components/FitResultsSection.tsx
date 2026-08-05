@@ -104,10 +104,10 @@ export default function FitResultsSection({
     legend: { orientation: "h" as const, y: -0.3, yanchor: "top", x: 0, xanchor: "left" },
     xaxis: { title: { text: "Time (s)" }, automargin: true },
     yaxis: {
-      title: { text: refCol ? "Response (ref-subtracted)" : "Response" },
+      title: { text: "Response" },
       automargin: true,
     },
-  }), [baseLayout, refCol]);
+  }), [baseLayout]);
 
   const residLayout = {
     margin: { l: 55, r: 10, t: 45, b: 45 },
@@ -115,7 +115,7 @@ export default function FitResultsSection({
     plot_bgcolor: "rgba(0,0,0,0)",
     legend: { orientation: "h" as const, y: -0.3, yanchor: "top", x: 0, xanchor: "left" },
     xaxis: { title: { text: "Time (s)" }, automargin: true },
-    yaxis: { title: { text: "Residual (RU)" }, automargin: true },
+    yaxis: { title: { text: "Response" }, automargin: true },
   };
 
   const overlapAssocLayout = {
