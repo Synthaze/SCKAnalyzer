@@ -8,7 +8,7 @@ export default function IntroductionSection() {
         SCKAnalyzer is a free, open-source web application for analyzing kinetic data obtained by the Single-Cycle Kinetics (SCK) method on BLI and SPR instruments, as well as on any other instrument capable of measuring interaction kinetics through titration experiments.
       </p>
       <p style={{ marginBottom: 6 }}>
-        It performs global, non-linear least-squares fitting of multi-injection sensorgrams to a 1:1 Langmuir binding model only, with optional mass-transport limitation, instrument drift, and bulk-offset correction.
+        It performs global, non-linear least-squares fitting of multi-injection sensorgrams to a 1:1 Langmuir binding model only, with optional instrument drift and bulk-offset correction.
       </p>
       <p style={{ marginBottom: 6 }}>
         Developed at the ARNA laboratory (INSERM U1212, University of Bordeaux), it enables fast and reproducible determination of reaction rate constants (<em>k<sub>a</sub></em>, <em>k<sub>d</sub></em>) and equilibrium constants (<em>K<sub>D</sub></em>) without relying on proprietary software.
@@ -17,7 +17,7 @@ export default function IntroductionSection() {
         Source code: <a href="https://github.com/Synthaze/SCKAnalyzer" target="_blank" rel="noopener noreferrer">github.com/synthaze/sckanalyzer</a>
       </p>
       <p>
-        Sample data: <a href="/statics/data/SCK4.zip" download>SCK4.zip</a>
+        Sample data: <a href="/statics/data/SCK5.zip" download>SCK5.zip</a>
       </p>
 
       <video
@@ -48,7 +48,7 @@ export default function IntroductionSection() {
       >
         <div style={{ fontWeight: 600, marginBottom: 4 }}>If you use this tool, please cite:</div>
         <div style={{ fontSize: 13.5 }}>
-          Malard, F. &amp; Di Primo, C. <em>SCKAnalyzer: An Online Tool for Single Cycle Kinetics Data Processing</em>. In preparation, 2026.
+          Malard, F., Blanc, J.-M., Roubin, E., Schäfer, T. &amp; Di Primo, C. <em>SCKAnalyzer: An Online Tool for Single Cycle Kinetics Data Processing</em>. In preparation, 2026.
         </div>
       </div>
     </div>

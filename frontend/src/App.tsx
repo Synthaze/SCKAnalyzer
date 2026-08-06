@@ -199,7 +199,7 @@ export default function App() {
       {activeTab === "simulate" && <SimulateSection />}
 
       <footer className="muted" style={{ textAlign: "center", padding: "10px 0 24px 0" }}>
-        Backend: FastAPI on :8000 · Frontend: Vite on :5173
+        © 2026 ARNA laboratory (INSERM U1212, University of Bordeaux)
       </footer>
     </div>
   );

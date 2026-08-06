@@ -1,9 +1,10 @@
 import React, { useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
 import Plotly from "plotly.js-dist-min";
-import { formatKD, formatConc } from "../lib/format";
+import { formatKD, formatConc, roundDecimals } from "../lib/format";
 import { downloadText, downloadPlotPng } from "../lib/export";
 import { CONC_UNITS, CONC_MULT, type ConcUnit } from "../lib/units";
+import HelpTip from "./HelpTip";
 
 // ── 1:1 Langmuir analytic simulation ─────────────────
 function simulate11(
@@ -97,6 +98,27 @@ export default function SimulateSection() {
     setInjections((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: v } : r)));
   const addInj    = () => setInjections((prev) => [...prev, { conc: "", assocTime: "60", dissocTime: "60" }]);
   const removeInj = (i: number) => setInjections((prev) => prev.filter((_, idx) => idx !== i));
+
+  // ── Dilution series builder ────────────────────────
+  const [injBuildMode, setInjBuildMode] = useState<"manual" | "dilution">("manual");
+  const [dilNInj,    setDilNInj]    = useState(4);
+  const [dilCFinal,  setDilCFinal]  = useState("50");
+  const [dilFactor,  setDilFactor]  = useState(2);
+  const [dilAssoc,   setDilAssoc]   = useState("60");
+  const [dilDissoc,  setDilDissoc]  = useState("60");
+
+  function buildInjDilutionSeries() {
+    const n = Math.max(1, Math.floor(dilNInj));
+    const cFinalV = Number(dilCFinal);
+    const d = Math.max(1, dilFactor);
+    if (!Number.isFinite(cFinalV) || cFinalV <= 0) return;
+    const rows: InjRow[] = [];
+    for (let i = 0; i < n; i++) {
+      const c = cFinalV / Math.pow(d, n - 1 - i);
+      rows.push({ conc: String(roundDecimals(c)), assocTime: dilAssoc, dissocTime: dilDissoc });
+    }
+    setInjections(rows);
+  }
 
   // ── Parsed values ─────────────────────────────────
   const ka   = useMemo(() => { const v = Number(kaStr);   return Number.isFinite(v) && v > 0 ? v : null; }, [kaStr]);
@@ -291,16 +313,6 @@ export default function SimulateSection() {
             <input type="text" inputMode="decimal" value={dtStr}
               onChange={(e) => setDtStr(e.target.value)} style={{ width: 80 }} />
           </label>
-          <label>
-            Baseline (s)
-            <input type="text" inputMode="decimal" value={baselineStr}
-              onChange={(e) => setBaselineStr(e.target.value)} style={{ width: 90 }} />
-          </label>
-          {totalDuration > 0 && (
-            <span className="muted" style={{ fontSize: 12, alignSelf: "flex-end" }}>
-              Total: {totalDuration.toFixed(0)} s · {tArr.length.toLocaleString()} pts
-            </span>
-          )}
         </div>
       </div>
 
@@ -316,6 +328,77 @@ export default function SimulateSection() {
             </select>
           </label>
         </div>
+
+        {/* Mode toggle */}
+        <div className="row" style={{ marginBottom: 14 }}>
+          <button
+            className={injBuildMode === "manual" ? "primary" : "secondary"}
+            onClick={() => setInjBuildMode("manual")}
+          >
+            Manual
+          </button>
+          <button
+            className={injBuildMode === "dilution" ? "primary" : "secondary"}
+            onClick={() => setInjBuildMode("dilution")}
+          >
+            From dilution series
+          </button>
+        </div>
+
+        {injBuildMode === "manual" && (
+          <div className="row" style={{ marginBottom: 14 }}>
+            <label>
+              <span>Injection start time <span className="unit">(s)</span><HelpTip text="Time at which the first injection begins (seconds from the start of the trace)." /></span>
+              <input type="text" inputMode="decimal" value={baselineStr}
+                onChange={(e) => setBaselineStr(e.target.value)} style={{ width: 110 }} />
+            </label>
+          </div>
+        )}
+
+        {injBuildMode === "dilution" && (
+          <div style={{ marginBottom: 14 }}>
+            <p className="muted" style={{ marginBottom: 8 }}>
+              Define the injection series. Concentrations are computed automatically by successive dilution; association and dissociation times are shared across all injections.
+            </p>
+            <div className="grid">
+              <label>
+                <span>Injection start time <span className="unit">(s)</span><HelpTip text="Time at which the first injection begins (seconds from the start of the trace)." /></span>
+                <input type="text" inputMode="decimal" value={baselineStr}
+                  onChange={(e) => setBaselineStr(e.target.value)} />
+              </label>
+              <label>
+                <span>Number of injections<HelpTip text="Total number of injections in the dilution series." /></span>
+                <input type="text" inputMode="decimal" defaultValue={dilNInj}
+                  onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setDilNInj(v); }} />
+              </label>
+              <label>
+                <span>Final concentration <span className="unit">({concUnit})</span><HelpTip text="Highest analyte concentration in the series. Preceding injections are computed by successively dividing by the dilution factor." /></span>
+                <input type="text" inputMode="decimal" value={dilCFinal}
+                  onChange={(e) => setDilCFinal(e.target.value)} />
+              </label>
+              <label>
+                <span>Dilution factor<HelpTip text="Each step is this many times less concentrated than the next (e.g. 2 = 2-fold serial dilution)." /></span>
+                <input type="text" inputMode="decimal" defaultValue={dilFactor}
+                  onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setDilFactor(v); }} />
+              </label>
+              <label>
+                <span>Association <span className="unit">(s)</span><HelpTip text="Duration of each injection window (seconds). Shared by all injections." /></span>
+                <input type="text" inputMode="decimal" value={dilAssoc}
+                  onChange={(e) => setDilAssoc(e.target.value)} />
+              </label>
+              <label>
+                <span>Dissociation <span className="unit">(s)</span><HelpTip text="Dissociation time after each injection (seconds). Shared by all injections." /></span>
+                <input type="text" inputMode="decimal" value={dilDissoc}
+                  onChange={(e) => setDilDissoc(e.target.value)} />
+              </label>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <button className="secondary" onClick={buildInjDilutionSeries}>
+                Build dilution series
+              </button>
+            </div>
+          </div>
+        )}
 
         <table className="result-table">
           <thead>
@@ -372,10 +455,15 @@ export default function SimulateSection() {
           </tbody>
         </table>
 
-        <div className="row" style={{ marginTop: 10 }}>
+        <div className="row" style={{ marginTop: 10, alignItems: "center", gap: 14 }}>
           <button className="secondary" style={{ padding: "4px 12px", fontSize: 12 }} onClick={addInj}>
             + Add injection
           </button>
+          {totalDuration > 0 && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              Total: {totalDuration.toFixed(0)} s · {tArr.length.toLocaleString()} pts
+            </span>
+          )}
         </div>
       </div>
 

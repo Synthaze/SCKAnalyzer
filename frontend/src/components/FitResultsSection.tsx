@@ -144,7 +144,7 @@ export default function FitResultsSection({
       const f = fits[0];
       return [
         { x: f.series.t, y: f.series.y,    type: "scatter", mode: "lines", name: "Data", line: { color: "#2563eb", width: 1.5 } },
-        { x: f.series.t, y: f.series.yhat, type: "scatter", mode: "lines", name: "Fit",  line: { color: "#dc2626", width: 2 } },
+        { x: f.series.t, y: f.series.yhat, type: "scatter", mode: "lines", name: "Fit",  line: { color: "#000000", width: 1.0 } },
       ];
     }
     if (isGlobalFit) {
