@@ -12,11 +12,8 @@ export async function parseCsv(file: File): Promise<Parsed> {
 }
 
 export async function fitCsv(payload: {
-  file: File;
-  time_col: string;
-  ru_col: string;
-  ref_col?: string;
-  conc_col?: string;
+  t: number[];
+  y: number[];
   steps_json?: string;
   baseline_mode?: string;
   robust_loss?: string;
@@ -31,11 +28,12 @@ export async function fitCsv(payload: {
   signal?: AbortSignal;
 }): Promise<FitResult> {
   const fd = new FormData();
-  fd.append("file", payload.file);
-  fd.append("time_col", payload.time_col);
-  fd.append("ru_col", payload.ru_col);
-  if (payload.ref_col) fd.append("ref_col", payload.ref_col);
-  if (payload.conc_col) fd.append("conc_col", payload.conc_col);
+  // Send the already-processed sensorgram (reference/blank-subtracted, as
+  // shown in the Upload/Define-steps previews) rather than re-uploading the
+  // raw file — the backend must fit exactly what the user sees, not a
+  // freshly re-parsed raw column.
+  fd.append("t_json", JSON.stringify(payload.t));
+  fd.append("y_json", JSON.stringify(payload.y));
   if (payload.steps_json) fd.append("steps_json", payload.steps_json);
   if (payload.baseline_mode) fd.append("baseline_mode", payload.baseline_mode);
   if (payload.robust_loss) fd.append("robust_loss", payload.robust_loss);
@@ -59,8 +57,7 @@ export async function fitCsv(payload: {
 }
 
 export async function fitGlobalCsv(payload: {
-  file: File;
-  replicates: Array<{ time_col: string; ru_col: string }>;
+  series: Array<{ t: number[]; y: number[] }>;
   steps_json?: string;
   baseline_mode?: string;
   robust_loss?: string;
@@ -77,8 +74,9 @@ export async function fitGlobalCsv(payload: {
   signal?: AbortSignal;
 }): Promise<FitResult[]> {
   const fd = new FormData();
-  fd.append("file", payload.file);
-  fd.append("replicates_json", JSON.stringify(payload.replicates));
+  // Send the already-processed sensorgrams (reference/blank-subtracted), one
+  // per replicate, instead of re-uploading the raw file + column names.
+  fd.append("series_json", JSON.stringify(payload.series));
   if (payload.steps_json) fd.append("steps_json", payload.steps_json);
   if (payload.baseline_mode) fd.append("baseline_mode", payload.baseline_mode);
   if (payload.robust_loss) fd.append("robust_loss", payload.robust_loss);

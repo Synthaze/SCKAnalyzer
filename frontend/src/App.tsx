@@ -50,7 +50,18 @@ export default function App() {
     const primary = filesets.primaryDataset;
     if (!primary || !primary.parsed) return;
 
-    const validReps = primary.replicates.filter((r) => r.xCol && r.yCol);
+    // Fit the already-processed sensorgram (reference/blank-subtracted, as
+    // shown in the Upload/Define-steps previews) rather than re-reading the
+    // raw file — computedSeries carries that correction, matched back to
+    // each configured replicate by its index within the dataset.
+    const seriesByRepIdx = new Map(
+      filesets.computedSeries
+        .filter((s) => s.datasetId === primary.id)
+        .map((s) => [s.replicateIndex, s])
+    );
+    const validReps = primary.replicates
+      .map((r, ri) => (r.xCol && r.yCol ? seriesByRepIdx.get(ri) : undefined))
+      .filter((s): s is NonNullable<typeof s> => !!s);
     if (validReps.length === 0) return;
 
     fitAbortRef.current?.abort();
@@ -104,15 +115,14 @@ export default function App() {
       let results;
       if (repFitMode === "global" && n > 1) {
         results = await fitGlobalCsvApi({
-          file: primary.file,
-          replicates: validReps.map((r) => ({ time_col: r.xCol, ru_col: r.yCol })),
+          series: validReps.map((r) => ({ t: r.t, y: r.y })),
           share_rmax: shareRmax,
           share_bulk: shareBulk,
           ...sharedArgs,
         });
       } else {
         results = await Promise.all(
-          validReps.map((rep) => fitCsvApi({ file: primary.file, time_col: rep.xCol, ru_col: rep.yCol, ...sharedArgs }))
+          validReps.map((rep) => fitCsvApi({ t: rep.t, y: rep.y, ...sharedArgs }))
         );
       }
       setFits(results);

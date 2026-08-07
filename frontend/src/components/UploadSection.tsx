@@ -78,7 +78,7 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
       type: "scatter",
       mode: "lines",
       name: s.label,
-      line: { width: 2 },
+      line: { width: 1.5 },
       // Non-active-dataset series start hidden but stay in the legend —
       // clicking their legend entry (standard Plotly behavior) re-enables them.
       visible: isPrimary ? true : "legendonly",

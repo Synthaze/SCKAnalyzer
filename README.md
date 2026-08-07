@@ -141,8 +141,8 @@ The backend exposes a small JSON/multipart API (see `backend/app/main.py`):
 |-------------------|---------------------------------------------------|
 | `GET /api/health`   | Liveness check                                   |
 | `POST /api/parse`   | Parse an uploaded CSV/FRD file, return columns   |
-| `POST /api/fit`     | Fit a single sensorgram                          |
-| `POST /api/fit_global` | Global fit across multiple replicates in one file |
+| `POST /api/fit`     | Fit a single sensorgram — either `file`+`time_col`+`ru_col`, or pre-processed `t_json`+`y_json` arrays |
+| `POST /api/fit_global` | Global fit across multiple replicates — either `file`+`replicates_json`, or pre-processed `series_json` (array of `{t, y}`) |
 
 ## Citation
 

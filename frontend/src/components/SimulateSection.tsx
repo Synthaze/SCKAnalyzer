@@ -106,6 +106,7 @@ export default function SimulateSection() {
   const [dilFactor,  setDilFactor]  = useState(2);
   const [dilAssoc,   setDilAssoc]   = useState("60");
   const [dilDissoc,  setDilDissoc]  = useState("60");
+  const [dilFinalDissoc, setDilFinalDissoc] = useState("120");
 
   function buildInjDilutionSeries() {
     const n = Math.max(1, Math.floor(dilNInj));
@@ -115,7 +116,8 @@ export default function SimulateSection() {
     const rows: InjRow[] = [];
     for (let i = 0; i < n; i++) {
       const c = cFinalV / Math.pow(d, n - 1 - i);
-      rows.push({ conc: String(roundDecimals(c)), assocTime: dilAssoc, dissocTime: dilDissoc });
+      const dissocTime = i === n - 1 ? dilFinalDissoc : dilDissoc;
+      rows.push({ conc: String(roundDecimals(c)), assocTime: dilAssoc, dissocTime });
     }
     setInjections(rows);
   }
@@ -387,9 +389,14 @@ export default function SimulateSection() {
                   onChange={(e) => setDilAssoc(e.target.value)} />
               </label>
               <label>
-                <span>Dissociation <span className="unit">(s)</span><HelpTip text="Dissociation time after each injection (seconds). Shared by all injections." /></span>
+                <span>Dissociation <span className="unit">(s)</span><HelpTip text="Dissociation time after each injection except the last (seconds). Shared by all intermediate injections." /></span>
                 <input type="text" inputMode="decimal" value={dilDissoc}
                   onChange={(e) => setDilDissoc(e.target.value)} />
+              </label>
+              <label>
+                <span>Final dissociation <span className="unit">(s)</span><HelpTip text="Duration of the dissociation window appended after the last injection (seconds). Often set longer than the intermediate dissociation to observe complete off-rate kinetics." /></span>
+                <input type="text" inputMode="decimal" value={dilFinalDissoc}
+                  onChange={(e) => setDilFinalDissoc(e.target.value)} />
               </label>
             </div>
             <div style={{ marginTop: 10 }}>
