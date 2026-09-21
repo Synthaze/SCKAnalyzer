@@ -21,7 +21,7 @@ export default function IntroductionSection() {
       </p>
 
       <video
-        src="/statics/mp4/sckanalyzer.mp4"
+        src="/statics/mp4/sckanalyzer.mp4?v=20260921"
         controls
         style={{
           marginTop: 16,
