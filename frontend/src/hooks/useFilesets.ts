@@ -135,7 +135,24 @@ export function useFilesets(): UseFilesetsResult {
   }, []);
 
   const removeDataset = useCallback((id: string) => {
-    setDatasets((prev) => prev.filter((d) => d.id !== id));
+    setDatasets((prev) =>
+      prev
+        .filter((d) => d.id !== id)
+        // Any other replicate that used this dataset as its reference/blank
+        // clears that pointer explicitly, rather than being left dangling —
+        // a dangling key already silently disables the correction (its
+        // target can't be found in computedSeries) and the dropdown already
+        // reverts to showing "—", so this just makes the actual state match
+        // what's displayed instead of the two silently drifting apart.
+        .map((d) => ({
+          ...d,
+          replicates: d.replicates.map((r) => ({
+            ...r,
+            refReplicateKey: r.refReplicateKey.startsWith(`${id}__`) ? "" : r.refReplicateKey,
+            blankReplicateKey: r.blankReplicateKey.startsWith(`${id}__`) ? "" : r.blankReplicateKey,
+          })),
+        }))
+    );
     setPrimaryId((cur) => (cur === id ? "" : cur));
   }, []);
 
@@ -257,8 +274,19 @@ export function useFilesets(): UseFilesetsResult {
         const tRaw = (d.parsed.data[rep.xCol] ?? []).map(Number);
         const yRaw = (d.parsed.data[rep.yCol] ?? []).map(Number);
 
+        // Drop non-finite rows before sorting, matching how the backend's
+        // legacy parsing path treats them (main.py's finite_mask): a NaN
+        // time value makes the sort comparator's ordering for that row
+        // unpredictable (comparisons with NaN are always false), so it
+        // could land anywhere rather than being dropped or pinned to an
+        // end — silently breaking the "sorted by time" assumption every
+        // later pass (segment building, lerp's binary search) relies on. A
+        // non-finite response value is dropped too, for the same reason
+        // main.py drops it: it would otherwise propagate NaN into ref/blank
+        // subtraction and the baseline median.
         const order = tRaw
           .map((v, i) => [v, i] as [number, number])
+          .filter(([v, i]) => Number.isFinite(v) && Number.isFinite(yRaw[i]))
           .sort((a, b) => a[0] - b[0])
           .map((p) => p[1]);
         const t = order.map((i) => tRaw[i]);

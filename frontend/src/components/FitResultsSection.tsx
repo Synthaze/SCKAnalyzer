@@ -45,6 +45,14 @@ type Props = {
   runFit: () => void;
   canFit: boolean;
   fits: FitResult[];
+  // Real-time fit progress/result/error message (set by App.tsx's runFit —
+  // "Fitting…", "Fit complete.", or the message from any failure, including
+  // a backend rejection like "no data points remain after exclusions").
+  // Shown here in preference to the static canFit hint once a fit has
+  // actually been attempted — previously this was only ever rendered on
+  // the separate Define Steps tab, so every fit failure looked like
+  // nothing had happened at all on this tab.
+  stepsStatus: string;
   stepsForShading: Array<{ start: number; stop: number; C: number }>;
   // refCol: DEAD CODE (commented out, not deleted — see dead-code review,
   // 2026-09-23). App.tsx used to pass this (derived from whether the
@@ -70,7 +78,7 @@ function summarize(vals: number[], fmt: (v: number) => string) {
 }
 
 export default function FitResultsSection({
-  fitOptions, runFit, canFit, fits,
+  fitOptions, runFit, canFit, fits, stepsStatus,
   stepsForShading, injectionSteps,
 }: Props) {
   const [overlapNormalize, setOverlapNormalize] = useState(true);
@@ -432,7 +440,7 @@ export default function FitResultsSection({
               : "A single ka and kd are fitted simultaneously across all replicates, but each replicate gets its own independently fitted Rmax (useful when surface capacity genuinely differs between replicates even though the kinetics are the same); bulk offsets (if enabled) are also fitted per replicate."} />
           </button>
         </div>
-        <span className="muted">{canFit ? "Ready to fit." : "Define injection steps first (tab 3)."}</span>
+        <span className="muted">{stepsStatus || (canFit ? "Ready to fit." : "Define injection steps first (tab 3).")}</span>
       </div>
 
       {/* Advanced options */}

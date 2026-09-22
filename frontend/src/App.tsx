@@ -226,6 +226,7 @@ export default function App() {
           runFit={runFit}
           canFit={canFit}
           fits={fits}
+          stepsStatus={steps.stepsStatus}
           stepsForShading={stepsForShading}
           // refCol: DEAD CODE (commented out, not deleted — see dead-code
           // review, 2026-09-23) — FitResultsSection never read this prop

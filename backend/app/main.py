@@ -270,18 +270,21 @@ async def api_fit(
     if fixed is not None and not isinstance(fixed, dict):
         return JSONResponse({"error": "fixed_json must be a JSON object"}, status_code=400)
 
-    result = fit_sck_11_biacore(  # type: ignore[assignment]
-        t, y, steps,
-        model=model,
-        robust_loss=robust_loss,
-        enable_drift=enable_drift,
-        enable_bulk=enable_bulk,
-        excludes=excludes,
-        bootstrap_n=int(bootstrap_n) if bootstrap_n is not None else 0,
-        bootstrap_seed=int(bootstrap_seed) if bootstrap_seed is not None else None,
-        bounds_override=bounds,
-        fixed_params=fixed,
-    )
+    try:
+        result = fit_sck_11_biacore(  # type: ignore[assignment]
+            t, y, steps,
+            model=model,
+            robust_loss=robust_loss,
+            enable_drift=enable_drift,
+            enable_bulk=enable_bulk,
+            excludes=excludes,
+            bootstrap_n=int(bootstrap_n) if bootstrap_n is not None else 0,
+            bootstrap_seed=int(bootstrap_seed) if bootstrap_seed is not None else None,
+            bounds_override=bounds,
+            fixed_params=fixed,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
     if warnings:
         result["warnings"] = (result.get("warnings") or []) + warnings
     result["preprocess"] = {
@@ -445,18 +448,21 @@ async def api_fit_global(
                 corrected.append((t_i, y_i))
             reps = corrected
 
-    results = fit_global_sck_11_biacore(
-        reps, steps,
-        model=model,
-        robust_loss=robust_loss,
-        enable_drift=enable_drift,
-        enable_bulk=enable_bulk,
-        share_rmax=share_rmax,
-        share_bulk=share_bulk,
-        excludes=excludes,
-        bootstrap_n=int(bootstrap_n) if bootstrap_n is not None else 0,
-        bootstrap_seed=int(bootstrap_seed) if bootstrap_seed is not None else None,
-        bounds_override=bounds,
-        fixed_params=fixed,
-    )
+    try:
+        results = fit_global_sck_11_biacore(
+            reps, steps,
+            model=model,
+            robust_loss=robust_loss,
+            enable_drift=enable_drift,
+            enable_bulk=enable_bulk,
+            share_rmax=share_rmax,
+            share_bulk=share_bulk,
+            excludes=excludes,
+            bootstrap_n=int(bootstrap_n) if bootstrap_n is not None else 0,
+            bootstrap_seed=int(bootstrap_seed) if bootstrap_seed is not None else None,
+            bounds_override=bounds,
+            fixed_params=fixed,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
     return json_safe({"fit_mode": "global", "replicates": results})

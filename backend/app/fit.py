@@ -326,6 +326,11 @@ def fit_sck_11_biacore(
     y = np.asarray(y, float)
 
     t_fit, y_fit = _apply_excludes(t, y, excludes)
+    if t_fit.size == 0:
+        raise ValueError(
+            "No data points remain after applying the exclusion windows — "
+            "check that they don't cover the entire trace."
+        )
 
     inj = _injection_steps(steps)
     n_inj = len(inj)
@@ -700,6 +705,13 @@ def fit_global_sck_11_biacore(
     reps_fit: List[Tuple[np.ndarray, np.ndarray]] = [
         _apply_excludes(t, y, excludes) for t, y in reps
     ]
+    empty_reps = [i + 1 for i, (t_fit_i, _) in enumerate(reps_fit) if t_fit_i.size == 0]
+    if empty_reps:
+        raise ValueError(
+            f"No data points remain after applying the exclusion windows for "
+            f"replicate(s) {', '.join(str(i) for i in empty_reps)} — check "
+            "that they don't cover the entire trace."
+        )
 
     inj = _injection_steps(steps)
     n_inj = len(inj)

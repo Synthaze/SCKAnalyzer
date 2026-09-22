@@ -1,11 +1,11 @@
 // Backs the "Define steps" tab: injection steps can be built two ways —
 // clicking start/end markers on the sensorgram (createStepsFromCursors) or
 // the parametric dilution-series builder (buildDilutionSeries) — and are
-// also freely hand-editable as a table or as raw JSON. stepsJson (raw text)
-// and stepsTable (structured rows) are two views of the same data, kept in
-// sync by routing every table-driven mutation through syncSteps(); only
-// stepsJson is edited directly by the user (via a textarea) or by
-// insertExample/buildDilutionSeries/createStepsFromCursors.
+// also freely hand-editable as a table. stepsJson (raw text) and stepsTable
+// (structured rows) are two views of the same data, kept in sync by routing
+// every table-driven mutation through syncSteps(); buildDilutionSeries sets
+// stepsJson directly instead, relying on the effect below to derive
+// stepsTable from it.
 import { useState, useMemo, useEffect } from "react";
 import type { Parsed } from "../types";
 import { tryParseSteps, type Step } from "../lib/steps";
@@ -31,7 +31,6 @@ export type UseStepsResult = {
   updateStep: (idx: number, field: keyof Step, value: number) => void;
   addStepRow: () => void;
   removeStepRow: (idx: number) => void;
-  insertExample: () => void;
   injStart: number;
   setInjStart: (v: number) => void;
   injDur: number;
@@ -65,7 +64,7 @@ export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult
 
   const stepsParsed = useMemo(() => tryParseSteps(stepsJson), [stepsJson]);
 
-  // Keep stepsTable in sync when stepsJson is set directly (e.g. insertExample)
+  // Keep stepsTable in sync when stepsJson is set directly (buildDilutionSeries)
   useEffect(() => {
     if (!stepsJson.trim()) {
       setStepsTable([]);
@@ -101,22 +100,6 @@ export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult
 
   function removeStepRow(idx: number) {
     syncSteps(stepsTable.filter((_, i) => i !== idx));
-  }
-
-  function insertExample() {
-    setStepsJson(
-      JSON.stringify(
-        [
-          { start: 10, stop: 70, C: 1e-9 },
-          { start: 70, stop: 130, C: 3e-9 },
-          { start: 130, stop: 190, C: 1e-8 },
-          { start: 190, stop: 250, C: 3e-8 },
-        ],
-        null,
-        2
-      )
-    );
-    setStepsStatus("Example inserted. Adjust times to match your run.");
   }
 
   function buildDilutionSeries() {
@@ -208,7 +191,6 @@ export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult
     updateStep,
     addStepRow,
     removeStepRow,
-    insertExample,
     injStart,
     setInjStart,
     injDur,

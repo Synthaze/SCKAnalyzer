@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
 import Plotly from "plotly.js-dist-min";
 import type { UseStepsResult } from "../hooks/useSteps";
@@ -44,6 +44,38 @@ export default function SckParamsSection({
     dissDur, setDissDur,
     buildDilutionSeries,
   } = steps;
+
+  // Concentration inputs (step table rows + the dilution builder's Final
+  // concentration) are uncontrolled — see the note above the dilution grid
+  // below — so a genuine unit switch can't be handled by just changing
+  // their `defaultValue` prop (React never re-applies that after mount).
+  // Previously this was forced via a concUnit-tied `key`, remounting the
+  // input — but remounting a *focused* input makes the browser fire a
+  // native blur first, which committed the already-rounded display text
+  // back as a "new" value, silently corrupting the stored concentration.
+  // Instead, on a unit change, push the newly-converted text into each
+  // input directly via these refs, skipping any input that currently has
+  // focus (its display just lags one unit-switch behind until it's blurred
+  // — the underlying value was never touched, no correction survives it).
+  const concInputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
+  const cFinalInputRef = useRef<HTMLInputElement>(null);
+
+  useLayoutEffect(() => {
+    for (const [i, el] of concInputRefs.current) {
+      if (document.activeElement === el) continue;
+      const s = stepsTable[i];
+      if (s) el.value = String(roundDecimals(s.C / CONC_MULT[concUnit]));
+    }
+    const cFinalEl = cFinalInputRef.current;
+    if (cFinalEl && document.activeElement !== cFinalEl) {
+      cFinalEl.value = String(roundDecimals(cFinal / CONC_MULT[concUnit]));
+    }
+    // Deliberately scoped to concUnit alone: a genuine value change (e.g.
+    // rebuilding the dilution series) is handled separately, by the
+    // value-based `key` on each row's concentration input forcing a fresh
+    // mount with the right defaultValue — this effect's only job is the
+    // "same value, different unit" resync.
+  }, [concUnit]);
 
   // In "add marker" mode, every plot click appends a new marker time (kept
   // sorted). Marker pairing (odd = start, even = end) happens later, in
@@ -276,10 +308,11 @@ export default function SckParamsSection({
                 uncontrolled: defaultValue + onBlur, committing the value only
                 when the field loses focus rather than on every keystroke, so
                 typing "1e-9" doesn't get clobbered mid-edit by a re-render.
-                Concentration fields additionally key={`...-${concUnit}`} so
-                changing the display unit forces a remount — otherwise a
-                *converted* number would sit in an input whose defaultValue is
-                fixed at mount time and never re-read. */}
+                Concentration fields are additionally kept in sync with the
+                Unit selector via the concInputRefs/cFinalInputRef effect
+                above, which imperatively updates their displayed text on a
+                unit change without remounting them (see that effect's
+                comment for why remounting was the wrong mechanism). */}
             <div className="grid">
               <label>
                 <span>Injection start time (s)<HelpTip text="Time at which the first injection begins (seconds from the start of the trace)." /></span>
@@ -307,7 +340,7 @@ export default function SckParamsSection({
                     converted on the way in (× CONC_MULT) and out (÷ CONC_MULT). */}
                 <span>Final concentration <span className="unit">({concUnit})</span><HelpTip text="Highest analyte concentration in the series, shown in the unit selected above (stored internally in molar). Preceding injections are computed by successively dividing by the dilution factor." /></span>
                 <input
-                  key={`cFinal-${concUnit}`}
+                  ref={cFinalInputRef}
                   type="text"
                   inputMode="decimal"
                   defaultValue={roundDecimals(cFinal / CONC_MULT[concUnit])}
@@ -363,8 +396,30 @@ export default function SckParamsSection({
             ) : (
               stepsTable.map((s, i) => (
                 <tr key={`step-${i}`}>
+                  {/* These inputs are uncontrolled (defaultValue + onBlur —
+                      see the note on this pattern above the dilution-series
+                      grid), so React only ever applies defaultValue at
+                      mount. Running "Build dilution series steps" again with
+                      the same row count changes s.start/s.stop/s.C from
+                      outside this row's own edit, without this row's
+                      <input> remounting — which would otherwise leave stale
+                      numbers on screen even though stepsJson/the preview
+                      plot are already correct. Keying each input by its own
+                      current value forces a remount (and thus a fresh
+                      defaultValue read) exactly when that value changes for
+                      a reason other than the field's own onBlur — by the
+                      time such a rebuild runs, the button that triggered it
+                      has already blurred this field naturally (clicking
+                      elsewhere always blurs the previous focus), so this
+                      never fires while the field is still being edited.
+                      The Concentration cell's key deliberately excludes
+                      concUnit — a unit switch (same value, different
+                      display) is handled separately, by the
+                      concInputRefs/cFinalInputRef effect above, not by
+                      remounting. */}
                   <td>
                     <input
+                      key={`start-${i}-${s.start}`}
                       type="text"
                       inputMode="decimal"
                       defaultValue={roundDecimals(s.start)}
@@ -373,6 +428,7 @@ export default function SckParamsSection({
                   </td>
                   <td>
                     <input
+                      key={`stop-${i}-${s.stop}`}
                       type="text"
                       inputMode="decimal"
                       defaultValue={roundDecimals(s.stop)}
@@ -381,7 +437,11 @@ export default function SckParamsSection({
                   </td>
                   <td>
                     <input
-                      key={`C-${i}-${concUnit}`}
+                      key={`C-${i}-${s.C}`}
+                      ref={(el) => {
+                        if (el) concInputRefs.current.set(i, el);
+                        else concInputRefs.current.delete(i);
+                      }}
                       type="text"
                       inputMode="decimal"
                       defaultValue={roundDecimals(s.C / CONC_MULT[concUnit])}
