@@ -27,6 +27,13 @@ export type ComputedSeries = {
   replicateIndex: number;
   t: number[];
   y: number[];
+  // Reference/blank-subtracted response WITHOUT the "Baseline → 0" visual
+  // shift applied. That checkbox is a display-only convenience for the
+  // Prepare-dataset/Define-steps previews (its own helptext says the fit
+  // applies its own baseline correction) — anything sent to the fit must
+  // use this field, never `y`, or the visual shift would silently change
+  // the fitted values.
+  yFit: number[];
   label: string;
 };
 
@@ -310,16 +317,19 @@ export function useFilesets(): UseFilesetsResult {
         const corrected = singleRefSeries.get(key);
         if (!corrected) continue;
 
-        let y = corrected.y;
+        let yFit = corrected.y;
 
         // blankReplicateKey likewise stores a specific replicate key.
         if (rep.blankReplicateKey && rep.blankReplicateKey !== key) {
           const blankCorrected = singleRefSeries.get(rep.blankReplicateKey);
           if (blankCorrected && blankCorrected.t.length > 0) {
-            y = corrected.t.map((t, i) => y[i] - lerp(blankCorrected.t, blankCorrected.y, t));
+            yFit = corrected.t.map((t, i) => yFit[i] - lerp(blankCorrected.t, blankCorrected.y, t));
           }
         }
 
+        // yFit (ref/blank-subtracted only) is what gets fitted. y adds the
+        // "Baseline → 0" visual shift on top, for display purposes only.
+        let y = yFit;
         if (rep.normalizeBaseline && y.length > 0) {
           const n5pct = Math.max(1, Math.floor(y.length * 0.05));
           const slice = y.slice(0, n5pct);
@@ -334,7 +344,7 @@ export function useFilesets(): UseFilesetsResult {
 
         const label = seriesLabel(d.label, rep, ri, d.replicates.length);
 
-        result.push({ id: key, datasetId: d.id, replicateIndex: ri, t: corrected.t, y, label });
+        result.push({ id: key, datasetId: d.id, replicateIndex: ri, t: corrected.t, y, yFit, label });
       }
     }
 

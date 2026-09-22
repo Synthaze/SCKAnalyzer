@@ -53,11 +53,14 @@ export default function App() {
     // Fit the already-processed sensorgram (reference/blank-subtracted, as
     // shown in the Upload/Define-steps previews) rather than re-reading the
     // raw file — computedSeries carries that correction, matched back to
-    // each configured replicate by its index within the dataset.
+    // each configured replicate by its index within the dataset. Uses
+    // yFit (never the display-only y), since y may carry the "Baseline → 0"
+    // visual shift from the Prepare-dataset tab, which must not leak into
+    // the fit — that tab's checkbox is for preview purposes only.
     const seriesByRepIdx = new Map(
       filesets.computedSeries
         .filter((s) => s.datasetId === primary.id)
-        .map((s) => [s.replicateIndex, s])
+        .map((s) => [s.replicateIndex, { t: s.t, y: s.yFit }])
     );
     const validReps = primary.replicates
       .map((r, ri) => (r.xCol && r.yCol ? seriesByRepIdx.get(ri) : undefined))

@@ -48,7 +48,7 @@ export default function IntroductionSection() {
       >
         <div style={{ fontWeight: 600, marginBottom: 4 }}>If you use this tool, please cite:</div>
         <div style={{ fontSize: 13.5 }}>
-          Malard, F., Blanc, J.-M., Schäfer, T. &amp; Di Primo, C. <em>SCKAnalyzer: An Online Tool for Single Cycle Kinetics Data Processing</em>. In preparation, 2026.
+          Malard, F., Blanc, J.-M., Roubin, E., Schäfer, T. &amp; Di Primo, C. <em>SCKAnalyzer: An Online Tool for Single Cycle Kinetics Data Processing</em>. In preparation, 2026.
         </div>
       </div>
     </div>

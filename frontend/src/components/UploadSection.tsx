@@ -46,22 +46,6 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
     return [header, ...rows].join("\n");
   }, [activeDatasetSeries]);
 
-  const datasetCsv = useMemo(() => {
-    if (!primaryDataset?.parsed) return "";
-    const { data, n_rows } = primaryDataset.parsed;
-    const selectedCols = new Set<string>();
-    primaryDataset.replicates.forEach((r) => {
-      if (r.xCol) selectedCols.add(r.xCol);
-      if (r.yCol) selectedCols.add(r.yCol);
-    });
-    const columns = primaryDataset.parsed.columns.filter((c) => selectedCols.has(c));
-    const lines = [columns.join(",")];
-    for (let i = 0; i < n_rows; i++) {
-      lines.push(columns.map((col) => data[col]?.[i] ?? "").join(","));
-    }
-    return lines.join("\n");
-  }, [primaryDataset]);
-
   const toggleMerge = useCallback((id: string) => {
     setMergeSelection((prev) => {
       const next = new Set(prev);
@@ -383,28 +367,26 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
         </div>
       )}
 
-      {/* Data table for primary dataset */}
-      {primaryDataset?.parsed && (() => {
-        const { data, n_rows } = primaryDataset.parsed;
-        const selectedCols = new Set<string>();
-        primaryDataset.replicates.forEach((r) => {
-          if (r.xCol) selectedCols.add(r.xCol);
-          if (r.yCol) selectedCols.add(r.yCol);
-        });
-        const columns = primaryDataset.parsed.columns.filter((c) => selectedCols.has(c));
+      {/* Data table for primary dataset — shows the fully processed trace
+          (reference subtraction, double-reference/blank subtraction, and
+          baseline normalization already applied), matching exactly what is
+          plotted above and what will be sent to the fit. Not the raw
+          uploaded columns. */}
+      {activeDatasetSeries.length > 0 && (() => {
+        const maxLen = Math.max(...activeDatasetSeries.map((s) => s.t.length));
         const MAX_ROWS = 500;
-        const shown = Math.min(n_rows, MAX_ROWS);
+        const shown = Math.min(maxLen, MAX_ROWS);
         return (
           <div className="card">
             <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 600, fontSize: 14 }}>Data — {primaryDataset.label}</span>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>Data — {primaryDataset?.label}</span>
               <span className="muted" style={{ fontSize: 12 }}>
-                {n_rows} rows · {columns.length} columns
-                {n_rows > MAX_ROWS && ` · showing first ${MAX_ROWS}`}
+                {maxLen} rows · {activeDatasetSeries.length} series · processed (ref/blank-subtracted)
+                {maxLen > MAX_ROWS && ` · showing first ${MAX_ROWS}`}
               </span>
               <button className="secondary" style={{ marginLeft: "auto", padding: "4px 10px", fontSize: 12 }}
-                onClick={() => datasetCsv && downloadText("sckanalyzer-dataset.csv", datasetCsv)}
-                disabled={!datasetCsv}>
+                onClick={() => sensorgramCsv && downloadText("sckanalyzer-dataset.csv", sensorgramCsv)}
+                disabled={!sensorgramCsv}>
                 Export CSV
               </button>
             </div>
@@ -414,10 +396,15 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                   <thead>
                     <tr>
                       <th style={{ position: "sticky", top: 0, background: "var(--card)", zIndex: 1, padding: "4px 8px" }}>#</th>
-                      {columns.map((col) => (
-                        <th key={col} style={{ position: "sticky", top: 0, background: "var(--card)", zIndex: 1, padding: "4px 8px", whiteSpace: "nowrap" }}>
-                          {col}
-                        </th>
+                      {activeDatasetSeries.map((s) => (
+                        <React.Fragment key={s.id}>
+                          <th style={{ position: "sticky", top: 0, background: "var(--card)", zIndex: 1, padding: "4px 8px", whiteSpace: "nowrap" }}>
+                            {s.label} · Time (s)
+                          </th>
+                          <th style={{ position: "sticky", top: 0, background: "var(--card)", zIndex: 1, padding: "4px 8px", whiteSpace: "nowrap" }}>
+                            {s.label} · Response (RU)
+                          </th>
+                        </React.Fragment>
                       ))}
                     </tr>
                   </thead>
@@ -425,14 +412,16 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                     {Array.from({ length: shown }, (_, i) => (
                       <tr key={i}>
                         <td className="muted" style={{ padding: "2px 8px", textAlign: "left" }}>{i + 1}</td>
-                        {columns.map((col) => {
-                          const v = data[col]?.[i];
-                          return (
-                            <td key={col} style={{ padding: "2px 8px", textAlign: "left", whiteSpace: "nowrap" }}>
-                              {v == null ? <span className="muted">—</span> : typeof v === "number" ? v.toPrecision(6) : String(v)}
+                        {activeDatasetSeries.map((s) => (
+                          <React.Fragment key={s.id}>
+                            <td style={{ padding: "2px 8px", textAlign: "left", whiteSpace: "nowrap" }}>
+                              {i < s.t.length ? s.t[i].toPrecision(6) : <span className="muted">—</span>}
                             </td>
-                          );
-                        })}
+                            <td style={{ padding: "2px 8px", textAlign: "left", whiteSpace: "nowrap" }}>
+                              {i < s.y.length ? s.y[i].toPrecision(6) : <span className="muted">—</span>}
+                            </td>
+                          </React.Fragment>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
