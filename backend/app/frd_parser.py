@@ -6,11 +6,20 @@ from typing import Dict, Any
 
 import numpy as np
 
-# Step types to include in the stitched kinetics trace
+# Step types to include in the stitched kinetics trace. Everything else an
+# Octet run can contain — KREGENERATION, NEUTRALIZATION, LOADING, etc. — is
+# implicitly excluded by simply not being in this set, rather than being
+# named and skipped explicitly.
 _KINETICS_TYPES = frozenset({"BASELINE", "ASSOC", "DISASSOC"})
 
 
 def _decode_float32(b64_text: str, n: int) -> np.ndarray:
+    """AssayXData/AssayYData store their sample arrays as base64-encoded
+    raw little-endian float32 bytes (whitespace/newlines inserted by the
+    XML pretty-printer are stripped before decoding). `n` is the step's
+    declared point count (from the `Points` XML attribute); n_use clamps to
+    however many complete 4-byte floats are actually present, in case the
+    blob is shorter than declared (a truncated or malformed export)."""
     raw = base64.b64decode(b64_text.replace("\n", "").replace("\r", "").replace(" ", ""))
     n_use = min(n, len(raw) // 4)
     return np.frombuffer(raw[: n_use * 4], dtype="<f4").astype(np.float64)
@@ -87,6 +96,12 @@ def parse_frd(content: bytes, filename: str = "") -> Dict[str, Any]:
     y = np.concatenate(y_parts)
     c = np.concatenate(c_parts)
 
+    # Steps are already concatenated in file order, which should already be
+    # chronological (AssayXData's cumulative in-well time, per the docstring
+    # above) — this re-sort is a defensive safeguard against an export where
+    # step order in the XML doesn't match time order. `stable` matters here:
+    # equal-time samples (e.g. exactly at a step boundary) must keep their
+    # original relative order rather than being shuffled by the sort.
     order = np.argsort(t, kind="stable")
     t, y, c = t[order], y[order], c[order]
 

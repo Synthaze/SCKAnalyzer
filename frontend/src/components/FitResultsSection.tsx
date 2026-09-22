@@ -1,10 +1,26 @@
+// The "Run fit" tab: fit configuration (mode, sharing toggles, robust loss,
+// baseline, per-parameter bounds/fixed values, bootstrap), the actual fit
+// call is triggered via the runFit prop (owned by App.tsx — this component
+// never calls the API itself), and every results view (fit/residual plots,
+// association/dissociation overlap, parameter table, quality metrics, bulk
+// offsets, exports). `fits` is one FitResult per replicate regardless of
+// mode — in global mode every entry shares the same ka/kd (and Rmax, if
+// shareRmax), so several views below collapse duplicate rows rather than
+// repeating identical numbers per replicate.
 import React, { useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
 import Plotly from "plotly.js-dist-min";
 import JSZip from "jszip";
 import type { FitResult } from "../types";
 import type { UseFitOptionsResult } from "../hooks/useFitOptions";
-import { formatConc, formatCiFromSe, formatKD } from "../lib/format";
+import { formatConc } from "../lib/format";
+// formatKD, formatCiFromSe: DEAD CODE (commented out, not deleted — see
+// dead-code review, 2026-09-23), confirmed via `tsc --noUnusedLocals
+// --noUnusedParameters`, which the project's default build doesn't run.
+// formatKD is unused only in this file (still used by SimulateSection.tsx).
+// formatCiFromSe has zero usages anywhere in the project — also commented
+// out at its definition in lib/format.ts.
+// import { formatCiFromSe, formatKD } from "../lib/format";
 import { downloadPlotPng, downloadText, dataUrlToBlob } from "../lib/export";
 import { buildConcColorScale, extractSegment, buildOverlapCsv, buildOverlapPhaseCsv } from "../lib/steps";
 import HelpTip from "./HelpTip";
@@ -30,7 +46,12 @@ type Props = {
   canFit: boolean;
   fits: FitResult[];
   stepsForShading: Array<{ start: number; stop: number; C: number }>;
-  refCol: string;
+  // refCol: DEAD CODE (commented out, not deleted — see dead-code review,
+  // 2026-09-23). App.tsx used to pass this (derived from whether the
+  // primary replicate has a reference series configured), but nothing in
+  // this component ever reads it — confirmed via
+  // `tsc --noUnusedLocals --noUnusedParameters`.
+  // refCol: string;
   injectionSteps: Array<{ start: number; stop: number; C: number }>;
 };
 
@@ -50,7 +71,7 @@ function summarize(vals: number[], fmt: (v: number) => string) {
 
 export default function FitResultsSection({
   fitOptions, runFit, canFit, fits,
-  stepsForShading, refCol, injectionSteps,
+  stepsForShading, injectionSteps,
 }: Props) {
   const [overlapNormalize, setOverlapNormalize] = useState(true);
   const [overlapBaseline, setOverlapBaseline] = useState<"data" | "fit">("data");
@@ -210,6 +231,19 @@ export default function FitResultsSection({
   }, [fits, hasMultiRep, isGlobalFit, selectedRepIdx]);
 
   // ── Overlap for the selected replicate ───────────
+  // For each injection, "association" is [start, stop] and "dissociation"
+  // is [stop, next injection's start] (or to the trace end for the last
+  // one) — i.e. dissociation is inferred from the gap to the *next* step,
+  // not stored anywhere explicitly.
+  //
+  // The baseline (zero-offset point) for aligning curves on top of each
+  // other is computed ONCE per segment from overlapBaseline's source (data
+  // or fit), then applied to BOTH the data and fit extraction for that same
+  // segment. This is deliberate: if data and fit each picked their own
+  // baseline independently, a good fit could still look visually offset
+  // from its own data on this plot even though the underlying values line
+  // up — sharing one baseline keeps the comparison meaningful regardless of
+  // which source (data or fit) it was computed from.
   const overlapSeries = useMemo(() => {
     if (!activeFit || injectionSteps.length === 0) return null;
     const { t, y, yhat } = activeFit.series;
@@ -242,6 +276,10 @@ export default function FitResultsSection({
     return { assoc, dissoc };
   }, [activeFit, injectionSteps, overlapNormalize, overlapBaseline]);
 
+  // Same association/dissociation windowing as overlapSeries above, but a
+  // plain per-segment RMSE rather than a baseline-aligned curve — this
+  // table is meant to spot which specific injection fits worst, not to be
+  // visually compared like the overlap plots are.
   const overlapRmse = useMemo(() => {
     if (!activeFit || injectionSteps.length === 0) return [];
     const { t, y, yhat } = activeFit.series;
@@ -265,6 +303,15 @@ export default function FitResultsSection({
   }, [activeFit, injectionSteps]);
 
   // ── CSV exports ───────────────────────────────────
+  // ka and kd are fitted in log10 space (see backend/app/fit.py), so the
+  // backend reports their standard errors as log10_ka/log10_kd — a SE in
+  // ln(x) units, not in x. Converting to a linear-space SE uses the
+  // standard first-order error-propagation result for x = 10^u:
+  // dx/du = x·ln(10), so SE(x) ≈ x·ln(10)·SE(u). The same
+  // ka*ln10*se_ka style expression recurs below (KD's SE combines both
+  // log-space SEs via the usual sum-of-variances rule for kd/ka) and again
+  // in fmtSe further down, which mirrors this exact math for on-screen
+  // display rather than CSV export.
   const buildParamsCsv = (fit: FitResult, repLabel?: string) => {
     const ci = fit.bootstrap?.ci95 ?? {};
     const prefix = repLabel ? `${repLabel},` : "";
@@ -355,6 +402,8 @@ export default function FitResultsSection({
   }, [overlapRmse]);
 
   // ── Parameters table helpers ──────────────────────
+  // Same log-space → linear-space SE conversion as buildParamsCsv above,
+  // for the on-screen table instead of CSV export.
   const fmtSe = (fit: FitResult) => {
     const ka  = fit.standard_errors?.log10_ka !== undefined  ? (fit.params.ka  * Math.LN10 * fit.standard_errors.log10_ka ).toExponential(3) : null;
     const kd  = fit.standard_errors?.log10_kd !== undefined  ? (fit.params.kd  * Math.LN10 * fit.standard_errors.log10_kd ).toExponential(3) : null;

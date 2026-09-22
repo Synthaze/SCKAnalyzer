@@ -1,4 +1,11 @@
 
+# Generic CSV/TSV and BLI/SPR ".dat" export parsing. Entry point is
+# parse_csv() at the bottom, which routes by filename extension to the
+# specialized .dat parser (_parse_dat, itself trying a Biacore-specific
+# X/Y-pair shape before falling back to a more generic delimited-numeric-
+# block heuristic) or the generic delimiter-sniffing CSV parser
+# (_parse_generic). Octet ".frd" (XML) files are a different format
+# entirely and are NOT handled here — see frd_parser.py.
 from __future__ import annotations
 from typing import Optional, Dict, Any, List
 import pandas as pd
@@ -6,6 +13,10 @@ import io
 import re
 import codecs
 
+# Matches a bare number, optionally signed, optionally with a decimal point
+# and/or scientific-notation exponent (e.g. "-1.5e-9", ".003", "42"). Used
+# throughout this file to decide whether a delimited field is numeric data
+# vs. a header/label/metadata line.
 _NUM_RE = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
 
 
@@ -99,7 +110,12 @@ def _parse_dat(content: bytes) -> Dict[str, Any]:
 
     lines = text.splitlines()
 
-    # Detect delimiter: prefer tab if it splits into >=2 cols on most lines
+    # Detect delimiter: try tab, comma, semicolon in that preference order,
+    # and pick the first one where at least 2 lines split into >=2 fields
+    # that are ALL numeric — i.e. the delimiter that actually carves out
+    # rows of tabular numeric data, not just any character that happens to
+    # appear in the file. Defaults to tab if none qualifies (most BLI/SPR
+    # exports are tab-separated).
     def split_line(line: str, sep: str):
         return [f.strip() for f in line.split(sep)]
 
@@ -142,7 +158,11 @@ def _parse_dat(content: bytes) -> Dict[str, Any]:
         # Fall back to generic CSV parse
         return _parse_generic(content, None)
 
-    # Check if the previous non-empty non-comment line looks like a header
+    # Only ever looks at the single nearest non-blank, non-comment line
+    # immediately above the numeric block (the `break` fires whether or not
+    # it turned out to look like a header) — if that line is itself
+    # numeric, there's no header, and any named header further above is not
+    # searched for.
     header = None
     for j in range(first_data_idx - 1, -1, -1):
         prev = lines[j].strip()
@@ -181,6 +201,11 @@ def _parse_dat(content: bytes) -> Dict[str, Any]:
 
 
 def _parse_generic(content: bytes, delimiter: Optional[str]) -> Dict[str, Any]:
+    # No delimiter specified: try each candidate in order and keep the first
+    # one pandas parses into >=2 columns. A 1-column result usually means
+    # that delimiter doesn't actually appear in the file, not that the file
+    # only has one column. If none of them qualify, falls through to
+    # pandas' own default (comma) parse as a last resort.
     if delimiter is None:
         for d in [",", "\t", ";", "|"]:
             try:
@@ -203,6 +228,12 @@ def _parse_generic(content: bytes, delimiter: Optional[str]) -> Dict[str, Any]:
 
 
 def parse_csv(content: bytes, delimiter: Optional[str] = None, filename: Optional[str] = None) -> Dict[str, Any]:
+    """Entry point used by both /api/parse and /api/fit's legacy file path
+    (main.py). Routes purely by filename extension: ".dat" gets the BLI/SPR-
+    aware parser (which itself falls back to _parse_generic on anything
+    that doesn't match its expected shapes); everything else goes straight
+    to the generic delimiter-sniffing parser. `delimiter`, when given,
+    forces _parse_generic's choice instead of auto-detecting one."""
     if filename and filename.lower().endswith(".dat"):
         return _parse_dat(content)
     return _parse_generic(content, delimiter)

@@ -4,7 +4,10 @@ from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 
 from scipy.optimize import least_squares
-from scipy.integrate import solve_ivp
+# solve_ivp was only used by _simulate_11_mass_transport, now commented out
+# below (dead code — MTL is not implemented/reachable). Restore this import
+# alongside that function if MTL is ever re-enabled.
+# from scipy.integrate import solve_ivp
 
 Step = Dict[str, float]  # {"start": float, "stop": float, "C": float}
 
@@ -29,43 +32,57 @@ def validate_steps(steps: List[Dict[str, Any]], t0: float, t1: float) -> List[St
             raise ValueError("steps must not overlap; ensure stop/start boundaries are ordered")
     return out
 
-def build_steps_from_conc(t: np.ndarray, c: np.ndarray, min_step_duration: float = 0.5) -> List[Step]:
-    t = np.asarray(t, float)
-    c = np.asarray(c, float)
-    change = np.where(np.diff(c) != 0)[0]
-    boundaries = [0] + (change + 1).tolist() + [len(t)]
-    steps: List[Step] = []
-    for a, b in zip(boundaries[:-1], boundaries[1:]):
-        if b - a < 2:
-            continue
-        start = float(t[a])
-        stop = float(t[b-1])
-        if stop - start < min_step_duration:
-            continue
-        steps.append({"start": start, "stop": stop, "C": float(c[a])})
-    # merge adjacent equal C
-    merged: List[Step] = []
-    for s in steps:
-        if not merged:
-            merged.append(s)
-        else:
-            prev = merged[-1]
-            if abs(prev["C"] - s["C"]) < 1e-12 and abs(prev["stop"] - s["start"]) < 1e-6:
-                prev["stop"] = s["stop"]
-            else:
-                merged.append(s)
-    return merged
+# DEAD CODE (commented out, not deleted — see dead-code review, 2026-09-22):
+# build_steps_from_conc() auto-built injection steps from a concentration
+# column. Its only caller was the legacy file+conc_col branch of /api/fit
+# (main.py), which is itself commented out below: the current SPA never
+# sends a conc_col (concentrations are entered in the step table, or the
+# dilution-series builder is used instead), and no UI ever exposed a
+# concentration-column selector. Restore by uncommenting this function AND
+# the call site (main.py, api_fit's step-resolution block) AND the import
+# in main.py.
+#
+# def build_steps_from_conc(t: np.ndarray, c: np.ndarray, min_step_duration: float = 0.5) -> List[Step]:
+#     t = np.asarray(t, float)
+#     c = np.asarray(c, float)
+#     change = np.where(np.diff(c) != 0)[0]
+#     boundaries = [0] + (change + 1).tolist() + [len(t)]
+#     steps: List[Step] = []
+#     for a, b in zip(boundaries[:-1], boundaries[1:]):
+#         if b - a < 2:
+#             continue
+#         start = float(t[a])
+#         stop = float(t[b-1])
+#         if stop - start < min_step_duration:
+#             continue
+#         steps.append({"start": start, "stop": stop, "C": float(c[a])})
+#     # merge adjacent equal C
+#     merged: List[Step] = []
+#     for s in steps:
+#         if not merged:
+#             merged.append(s)
+#         else:
+#             prev = merged[-1]
+#             if abs(prev["C"] - s["C"]) < 1e-12 and abs(prev["stop"] - s["start"]) < 1e-6:
+#                 prev["stop"] = s["stop"]
+#             else:
+#                 merged.append(s)
+#     return merged
 
 def _injection_steps(steps: List[Step]) -> List[Step]:
     """Return only injection (association) segments where C>0."""
     return [s for s in steps if float(s["C"]) > 0.0]
 
-def _conc_at_time(steps: List[Step], t: float) -> float:
-    # steps define C(t) only within their windows; outside -> 0
-    for s in steps:
-        if t >= s["start"] and t <= s["stop"]:
-            return float(s["C"])
-    return 0.0
+# DEAD CODE (commented out, not deleted — see dead-code review, 2026-09-22):
+# _conc_at_time() was only used by _simulate_11_mass_transport(), also
+# commented out above. Restore alongside that function.
+#
+# def _conc_at_time(steps: List[Step], t: float) -> float:
+#     # steps define C(t) only within their windows; outside -> 0
+#     for s in steps:
+#         if t >= s["start"] and t <= s["stop"]:
+#             return float(s["C"])
+#     return 0.0
 
 def _simulate_11_analytic(
     t: np.ndarray,
@@ -130,61 +147,72 @@ def _simulate_11_analytic(
 
     return yhat
 
-def _simulate_11_mass_transport(
-    t: np.ndarray,
-    steps: List[Step],
-    ka: float,
-    kd: float,
-    rmax: float,
-    kt: float,
-    drift: float = 0.0,
-    bulk_offsets: Optional[np.ndarray] = None,
-) -> np.ndarray:
-    """
-    "Biacore-style" mass transport-limited model (simplified 2-compartment):
-      dCs/dt = kt * (C(t) - Cs)
-      dR/dt  = ka * Cs * (Rmax - R) - kd * R
-
-    Note: This captures transport lag/limitation without requiring RU↔surface-density conversion.
-    """
-    t = np.asarray(t, float)
-
-    def rhs(tt: float, y: np.ndarray) -> np.ndarray:
-        R = y[0]
-        Cs = y[1]
-        C = _conc_at_time(steps, tt)
-        dCs = kt * (C - Cs)
-        dR = ka * Cs * (rmax - R) - kd * R
-        return np.array([dR, dCs], dtype=float)
-
-    y0 = np.array([0.0, 0.0], dtype=float)
-    sol = solve_ivp(
-        rhs,
-        t_span=(float(t[0]), float(t[-1])),
-        y0=y0,
-        t_eval=t,
-        method="LSODA",
-        rtol=1e-6,
-        atol=1e-8,
-    )
-    if not sol.success:
-        # fallback to analytic no-MT if solver fails
-        yhat = _simulate_11_analytic(t, steps, ka, kd, rmax, drift=0.0, bulk_offsets=None)
-    else:
-        yhat = sol.y[0].astype(float)
-
-    if drift != 0.0:
-        yhat = yhat + drift * (t - float(t[0]))
-
-    if bulk_offsets is not None:
-        inj = _injection_steps(steps)
-        n = min(len(inj), len(bulk_offsets))
-        for i in range(n):
-            s = inj[i]
-            mask = (t >= s["start"]) & (t <= s["stop"])
-            yhat[mask] = yhat[mask] + float(bulk_offsets[i])
-
-    return yhat
+# DEAD CODE (commented out, not deleted — see dead-code review, 2026-09-22):
+# _simulate_11_mass_transport() implements the mass-transport-limited (MTL)
+# extension. It is not a working/validated feature — never expose it again
+# without re-validating it. The web UI has no control that can select it
+# (App.tsx hardcodes model="11"). Every branch that would call this
+# function (in fit_sck_11_biacore and fit_global_sck_11_biacore, both
+# further down in this file) is commented out too, so it can never
+# actually run, even from a direct API request with model="11_mt".
+# Restore by uncommenting this function AND every commented-out
+# `use_mt`/`model == "11_mt"` branch in those two functions.
+#
+# def _simulate_11_mass_transport(
+#     t: np.ndarray,
+#     steps: List[Step],
+#     ka: float,
+#     kd: float,
+#     rmax: float,
+#     kt: float,
+#     drift: float = 0.0,
+#     bulk_offsets: Optional[np.ndarray] = None,
+# ) -> np.ndarray:
+#     """
+#     "Biacore-style" mass transport-limited model (simplified 2-compartment):
+#       dCs/dt = kt * (C(t) - Cs)
+#       dR/dt  = ka * Cs * (Rmax - R) - kd * R
+#
+#     Note: This captures transport lag/limitation without requiring RU↔surface-density conversion.
+#     """
+#     t = np.asarray(t, float)
+#
+#     def rhs(tt: float, y: np.ndarray) -> np.ndarray:
+#         R = y[0]
+#         Cs = y[1]
+#         C = _conc_at_time(steps, tt)
+#         dCs = kt * (C - Cs)
+#         dR = ka * Cs * (rmax - R) - kd * R
+#         return np.array([dR, dCs], dtype=float)
+#
+#     y0 = np.array([0.0, 0.0], dtype=float)
+#     sol = solve_ivp(
+#         rhs,
+#         t_span=(float(t[0]), float(t[-1])),
+#         y0=y0,
+#         t_eval=t,
+#         method="LSODA",
+#         rtol=1e-6,
+#         atol=1e-8,
+#     )
+#     if not sol.success:
+#         # fallback to analytic no-MT if solver fails
+#         yhat = _simulate_11_analytic(t, steps, ka, kd, rmax, drift=0.0, bulk_offsets=None)
+#     else:
+#         yhat = sol.y[0].astype(float)
+#
+#     if drift != 0.0:
+#         yhat = yhat + drift * (t - float(t[0]))
+#
+#     if bulk_offsets is not None:
+#         inj = _injection_steps(steps)
+#         n = min(len(inj), len(bulk_offsets))
+#         for i in range(n):
+#             s = inj[i]
+#             mask = (t >= s["start"]) & (t <= s["stop"])
+#             yhat[mask] = yhat[mask] + float(bulk_offsets[i])
+#
+#     return yhat
 
 def _apply_excludes(t: np.ndarray, y: np.ndarray, excludes: Optional[List[Dict[str, float]]]) -> Tuple[np.ndarray, np.ndarray]:
     if not excludes:
@@ -283,11 +311,17 @@ def fit_sck_11_biacore(
     """
     Biacore-grade-ish fitter:
       - global 1:1 kinetics across full run
-      - optional linear drift parameter
       - optional per-injection bulk offsets (RI step shifts)
-      - optional mass transport limitation (simplified 2-compartment with kt)
       - optional exclusion windows
     """
+    # DEAD CODE (commented out below, not deleted — see dead-code review,
+    # 2026-09-22): instrument drift and the mass-transport-limited (MTL)
+    # model are not exposed anywhere in the web UI (App.tsx hardcodes
+    # enable_drift=False, model="11") and MTL is not a working/validated
+    # feature. Every `enable_drift`/`use_mt` branch below is commented out;
+    # `enable_drift` and `use_mt` themselves are unused now — restore both
+    # the commented-out branches and a `use_mt = (model == "11_mt")` /
+    # `enable_drift` parameter check if either is ever re-enabled.
     t = np.asarray(t, float)
     y = np.asarray(y, float)
 
@@ -300,25 +334,30 @@ def fit_sck_11_biacore(
     y_max = float(np.nanmax(y_fit)) if y_fit.size else float(np.nanmax(y))
     rmax0 = max(y_max, 10.0)
     ka0, kd0 = 1e5, 1e-3
-    drift0 = 0.0
-    kt0 = 50.0  # 1/s (rough)
+    # drift0, kt0 (1/s, rough) were the drift/MTL initial guesses, now dead
+    # (see the commented-out x0 branches below):
+    # drift0 = 0.0
+    # kt0 = 50.0
 
     # Parameter vector:
-    # [log10_ka, log10_kd, Rmax, (drift), (log10_kt), bulk_0..bulk_{n-1}]
+    # [log10_ka, log10_kd, Rmax, bulk_0..bulk_{n-1}]
     x0 = [np.log10(ka0), np.log10(kd0), rmax0]
     lb = [2.0, -6.0, 0.0]
     ub = [9.0, 1.0, 1e6]
 
-    if enable_drift:
-        x0 += [drift0]
-        lb += [-0.1]   # RU/s
-        ub += [0.1]
+    # Drift disabled (dead code, see note above):
+    # if enable_drift:
+    #     x0 += [drift0]
+    #     lb += [-0.1]   # RU/s
+    #     ub += [0.1]
 
-    use_mt = (model == "11_mt")
-    if use_mt:
-        x0 += [np.log10(kt0)]
-        lb += [-3.0]   # kt 1e-3 .. 1e4 1/s
-        ub += [4.0]
+    # MTL disabled (dead code, see the note above this function and
+    # _simulate_11_mass_transport's comment block further up):
+    # use_mt = (model == "11_mt")
+    # if use_mt:
+    #     x0 += [np.log10(kt0)]
+    #     lb += [-3.0]   # kt 1e-3 .. 1e4 1/s
+    #     ub += [4.0]
 
     if enable_bulk and n_inj > 0:
         x0 += [0.0] * n_inj
@@ -330,10 +369,11 @@ def fit_sck_11_biacore(
     ub = np.array(ub, dtype=float)
 
     param_names: List[str] = ["log10_ka", "log10_kd", "Rmax"]
-    if enable_drift:
-        param_names.append("drift_RU_per_s")
-    if use_mt:
-        param_names.append("log10_kt")
+    # Drift/MTL disabled (dead code, see note above):
+    # if enable_drift:
+    #     param_names.append("drift_RU_per_s")
+    # if use_mt:
+    #     param_names.append("log10_kt")
     if enable_bulk and n_inj > 0:
         for i in range(n_inj):
             param_names.append(f"bulk_offset_{i}_RU")
@@ -345,6 +385,15 @@ def fit_sck_11_biacore(
             ub[idx] = float(hi)
         if lb[idx] > ub[idx]:
             lb[idx], ub[idx] = ub[idx], lb[idx]
+        if lb[idx] == ub[idx]:
+            # scipy's least_squares requires lb < ub strictly (equal bounds
+            # raise ValueError). fixed_params fixes a parameter via
+            # _set_bounds(idx, v, v), i.e. lo == hi — widen by a tiny,
+            # scale-aware epsilon so the bound is valid while the parameter
+            # stays numerically fixed for all practical purposes.
+            eps = max(abs(lb[idx]) * 1e-6, 1e-9)
+            lb[idx] -= eps
+            ub[idx] += eps
         if x0[idx] < lb[idx]:
             x0[idx] = lb[idx]
         if x0[idx] > ub[idx]:
@@ -352,7 +401,12 @@ def fit_sck_11_biacore(
 
     if bounds_override:
         for key, bounds in bounds_override.items():
-            if key not in ("ka", "kd", "Rmax", "drift_RU_per_s", "kt_per_s"):
+            # "drift_RU_per_s"/"kt_per_s" removed from this whitelist (dead
+            # code — enable_drift/use_mt are disabled, see above): letting
+            # them through here was a silent no-op anyway, since every
+            # branch that would act on them below is already commented out.
+            # if key not in ("ka", "kd", "Rmax", "drift_RU_per_s", "kt_per_s"):
+            if key not in ("ka", "kd", "Rmax"):
                 continue
             if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
                 continue
@@ -368,12 +422,13 @@ def fit_sck_11_biacore(
                     _set_bounds(param_names.index("log10_ka"), _to_log_bound(lo), _to_log_bound(hi))
                 elif key == "kd":
                     _set_bounds(param_names.index("log10_kd"), _to_log_bound(lo), _to_log_bound(hi))
-                elif key == "kt_per_s" and use_mt:
-                    _set_bounds(param_names.index("log10_kt"), _to_log_bound(lo), _to_log_bound(hi))
+                # MTL/drift disabled (dead code, see note above):
+                # elif key == "kt_per_s" and use_mt:
+                #     _set_bounds(param_names.index("log10_kt"), _to_log_bound(lo), _to_log_bound(hi))
                 elif key == "Rmax":
                     _set_bounds(param_names.index("Rmax"), lo, hi)
-                elif key == "drift_RU_per_s" and enable_drift:
-                    _set_bounds(param_names.index("drift_RU_per_s"), lo, hi)
+                # elif key == "drift_RU_per_s" and enable_drift:
+                #     _set_bounds(param_names.index("drift_RU_per_s"), lo, hi)
             except _InvalidBound:
                 continue
 
@@ -391,16 +446,17 @@ def fit_sck_11_biacore(
                 idx = param_names.index("log10_kd")
                 v = float(np.log10(v))
                 _set_bounds(idx, v, v)
-            elif key == "kt_per_s" and use_mt and v > 0:
-                idx = param_names.index("log10_kt")
-                v = float(np.log10(v))
-                _set_bounds(idx, v, v)
+            # MTL/drift disabled (dead code, see note above):
+            # elif key == "kt_per_s" and use_mt and v > 0:
+            #     idx = param_names.index("log10_kt")
+            #     v = float(np.log10(v))
+            #     _set_bounds(idx, v, v)
             elif key == "Rmax":
                 idx = param_names.index("Rmax")
                 _set_bounds(idx, v, v)
-            elif key == "drift_RU_per_s" and enable_drift:
-                idx = param_names.index("drift_RU_per_s")
-                _set_bounds(idx, v, v)
+            # elif key == "drift_RU_per_s" and enable_drift:
+            #     idx = param_names.index("drift_RU_per_s")
+            #     _set_bounds(idx, v, v)
 
     def unpack(x: np.ndarray):
         i = 0
@@ -408,11 +464,13 @@ def fit_sck_11_biacore(
         kd = 10**x[i]; i += 1
         rmax = float(x[i]); i += 1
         drift = 0.0
-        if enable_drift:
-            drift = float(x[i]); i += 1
+        # Drift/MTL are disabled — see note above. The parameter vector
+        # never has a drift or kt slot, so `i` must not advance for either.
+        # if enable_drift:
+        #     drift = float(x[i]); i += 1
         kt = None
-        if use_mt:
-            kt = 10**x[i]; i += 1
+        # if use_mt:
+        #     kt = 10**x[i]; i += 1
         bulk = None
         if enable_bulk and n_inj > 0:
             bulk = x[i:i+n_inj].astype(float).copy()
@@ -421,8 +479,10 @@ def fit_sck_11_biacore(
 
     def predict(tt: np.ndarray, x: np.ndarray) -> np.ndarray:
         ka, kd, rmax, drift, kt, bulk = unpack(x)
-        if use_mt and kt is not None:
-            return _simulate_11_mass_transport(tt, steps, ka, kd, rmax, kt, drift=drift, bulk_offsets=bulk)
+        # MTL disabled (dead code, see note above; also
+        # _simulate_11_mass_transport itself is commented out):
+        # if use_mt and kt is not None:
+        #     return _simulate_11_mass_transport(tt, steps, ka, kd, rmax, kt, drift=drift, bulk_offsets=bulk)
         return _simulate_11_analytic(tt, steps, ka, kd, rmax, drift=drift, bulk_offsets=bulk)
 
     def residuals(x: np.ndarray, y_target: np.ndarray) -> np.ndarray:
@@ -434,7 +494,12 @@ def fit_sck_11_biacore(
             lambda x: residuals(x, y_target),
             x0_override if x0_override is not None else x0,
             bounds=(lb, ub),
-            loss=robust_loss if robust_loss in ("linear", "soft_l1", "huber", "cauchy", "arctan") else "soft_l1",
+            # Whitelist restricted to what the web UI actually exposes
+            # (soft_l1/linear/huber) — see dead-code review, 2026-09-22.
+            # scipy also supports "cauchy"/"arctan", accepted here before,
+            # but no UI control ever offered them; removed so they can't be
+            # silently selected via a direct API request either.
+            loss=robust_loss if robust_loss in ("linear", "soft_l1", "huber") else "soft_l1",
             f_scale=1.0,
             max_nfev=8000,
         )
@@ -473,10 +538,11 @@ def fit_sck_11_biacore(
         pass
 
     params: Dict[str, Any] = {"ka": float(ka), "kd": float(kd), "KD": KD, "Rmax": float(rmax)}
-    if enable_drift:
-        params["drift_RU_per_s"] = float(drift)
-    if use_mt and kt is not None:
-        params["kt_per_s"] = float(kt)
+    # Drift/MTL disabled (dead code, see note above):
+    # if enable_drift:
+    #     params["drift_RU_per_s"] = float(drift)
+    # if use_mt and kt is not None:
+    #     params["kt_per_s"] = float(kt)
     if enable_bulk and bulk is not None:
         params["bulk_offsets_RU"] = bulk.tolist()
 
@@ -493,9 +559,13 @@ def fit_sck_11_biacore(
         "success": bool(res.success),
         "message": str(res.message),
         "nfev": int(res.nfev),
-        "model": "11_mt" if use_mt else "11",
+        # MTL disabled (dead code, see above), so this is always "11":
+        # "model": "11_mt" if use_mt else "11",
+        "model": "11",
         "options": {
-            "enable_drift": bool(enable_drift),
+            # Drift disabled (dead code, see above) — always False,
+            # regardless of the enable_drift argument:
+            "enable_drift": False,
             "enable_bulk": bool(enable_bulk),
             "excludes": excludes or [],
         },
@@ -507,19 +577,21 @@ def fit_sck_11_biacore(
         "warnings": warnings,
     }
 
-    if use_mt:
-        # locate log10_kt index
-        base = 3 + (1 if enable_drift else 0)
-        out["params_log10"]["log10_kt"] = float(res.x[base])
+    # MTL disabled (dead code, see note above):
+    # if use_mt:
+    #     # locate log10_kt index
+    #     base = 3 + (1 if enable_drift else 0)
+    #     out["params_log10"]["log10_kt"] = float(res.x[base])
 
     if se is not None:
         # Map SEs by name
         names = ["log10_ka", "log10_kd", "Rmax"]
         idx = 3
-        if enable_drift:
-            names.append("drift_RU_per_s"); idx += 1
-        if use_mt:
-            names.append("log10_kt"); idx += 1
+        # Drift/MTL disabled (dead code, see note above):
+        # if enable_drift:
+        #     names.append("drift_RU_per_s"); idx += 1
+        # if use_mt:
+        #     names.append("log10_kt"); idx += 1
         if enable_bulk and n_inj > 0:
             for i in range(n_inj):
                 names.append(f"bulk_offset_{i}_RU")
@@ -537,17 +609,15 @@ def fit_sck_11_biacore(
                 if not res_b.success:
                     failures += 1
                     continue
-                ka_b, kd_b, rmax_b, drift_b, kt_b, bulk_b = unpack(res_b.x)
+                # drift/kt slots unpacked but unused (_): drift/MTL are
+                # disabled (dead code, see note above).
+                ka_b, kd_b, rmax_b, _, _, bulk_b = unpack(res_b.x)
                 entry: Dict[str, float] = {
                     "ka": float(ka_b),
                     "kd": float(kd_b),
                     "KD": float(kd_b / ka_b) if ka_b > 0 else float("nan"),
                     "Rmax": float(rmax_b),
                 }
-                if enable_drift:
-                    entry["drift_RU_per_s"] = float(drift_b)
-                if use_mt and kt_b is not None:
-                    entry["kt_per_s"] = float(kt_b)
                 if enable_bulk and bulk_b is not None:
                     for i in range(len(bulk_b)):
                         entry[f"bulk_offset_{i}_RU"] = float(bulk_b[i])
@@ -591,34 +661,38 @@ def fit_global_sck_11_biacore(
     fixed_params: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Global fit across N replicates: shared ka, kd (and kt if MT). Rmax is
-    shared too by default (share_rmax=True); set share_rmax=False to fit an
-    independent Rmax per replicate instead (e.g. when surface capacity is
-    expected to differ between replicates even though the underlying
-    kinetics, ka/kd, are the same). Per-injection bulk offsets are likewise
-    shared across replicates by default (share_bulk=True) — the bulk RI
-    shift at a given injection is usually a systematic, concentration-
-    dependent artifact rather than something that should vary randomly
-    between replicates; set share_bulk=False to fit an independent set of
-    offsets per replicate instead. Drift (optional) is always fitted
-    independently per replicate.
+    Global fit across N replicates: shared ka, kd. Rmax is shared too by
+    default (share_rmax=True); set share_rmax=False to fit an independent
+    Rmax per replicate instead (e.g. when surface capacity is expected to
+    differ between replicates even though the underlying kinetics, ka/kd,
+    are the same). Per-injection bulk offsets are likewise shared across
+    replicates by default (share_bulk=True) — the bulk RI shift at a given
+    injection is usually a systematic, concentration-dependent artifact
+    rather than something that should vary randomly between replicates;
+    set share_bulk=False to fit an independent set of offsets per replicate
+    instead.
 
     Parameter vector layout (share_rmax=True, share_bulk=True — the default):
-      [log10_ka, log10_kd, Rmax, [log10_kt], [bulk_0..bulk_{m-1}],
-       [drift_0],
-       [drift_1],
-       ...]
+      [log10_ka, log10_kd, Rmax, [bulk_0..bulk_{m-1}]]
 
     Parameter vector layout (share_rmax=False, share_bulk=False):
-      [log10_ka, log10_kd, [log10_kt],
-       [Rmax_0], [drift_0], [bulk_0_0..m-1],
-       [Rmax_1], [drift_1], [bulk_1_0..m-1],
+      [log10_ka, log10_kd,
+       [Rmax_0], [bulk_0_0..m-1],
+       [Rmax_1], [bulk_1_0..m-1],
        ...]
 
     (share_rmax and share_bulk are independent — any combination is valid;
     each parameter simply lives in the shared block or the per-replicate
     block depending on its own flag.)
     """
+    # DEAD CODE (commented out below, not deleted — see dead-code review,
+    # 2026-09-22): instrument drift and the mass-transport-limited (MTL)
+    # model are not exposed anywhere in the web UI (App.tsx hardcodes
+    # enable_drift=False, model="11") and MTL is not a working/validated
+    # feature. Every `enable_drift`/`use_mt` branch below is commented out;
+    # `enable_drift` and `use_mt` themselves are unused now — restore both
+    # the commented-out branches and a `use_mt = (model == "11_mt")` /
+    # `enable_drift` parameter check if either is ever re-enabled.
     n_reps = len(reps)
     if n_reps == 0:
         return []
@@ -629,36 +703,47 @@ def fit_global_sck_11_biacore(
 
     inj = _injection_steps(steps)
     n_inj = len(inj)
-    use_mt = (model == "11_mt")
+    # MTL disabled (dead code, see the note above this function and
+    # _simulate_11_mass_transport's comment block further up):
+    # use_mt = (model == "11_mt")
     bulk_active = enable_bulk and n_inj > 0
 
-    # Shared block: log10_ka, log10_kd, [Rmax if shared], [log10_kt],
+    # Shared block: log10_ka, log10_kd, [Rmax if shared],
     #               [bulk_0..bulk_{n_inj-1} if shared]
-    n_shared = 2 + (1 if share_rmax else 0) + (1 if use_mt else 0)
+    # MTL disabled (dead code, see above), so the `+ (1 if use_mt else 0)`
+    # kt slot is never allocated:
+    # n_shared = 2 + (1 if share_rmax else 0) + (1 if use_mt else 0)
+    n_shared = 2 + (1 if share_rmax else 0)
     rmax_shared_idx = 2 if share_rmax else None
-    kt_shared_idx = (2 + (1 if share_rmax else 0)) if use_mt else None
+    # MTL disabled (dead code, see above); kt_shared_idx no longer needed —
+    # restore `kt_shared_idx = (2 + (1 if share_rmax else 0)) if use_mt else None`
+    # alongside every other commented-out use_mt branch if MTL is re-enabled.
     bulk_shared_idx: Optional[int] = None
     if bulk_active and share_bulk:
         bulk_shared_idx = n_shared
         n_shared += n_inj
 
-    # Per-rep block: [Rmax_i if not shared], [drift_i], [bulk_i_0..n_inj-1 if not shared]
+    # Per-rep block: [Rmax_i if not shared], [bulk_i_0..n_inj-1 if not shared]
+    # (drift_i slot removed: drift is disabled, see below)
     per_rep = 0
     rmax_rep_offset: Optional[int] = None
     if not share_rmax:
         rmax_rep_offset = per_rep
         per_rep += 1
-    drift_rep_offset: Optional[int] = None
-    if enable_drift:
-        drift_rep_offset = per_rep
-        per_rep += 1
+    # Drift disabled (dead code, see the note above this function);
+    # drift_rep_offset no longer needed — restore
+    # `drift_rep_offset: Optional[int] = None` plus
+    # `if enable_drift: drift_rep_offset = per_rep; per_rep += 1`
+    # alongside every other commented-out enable_drift branch if drift is
+    # re-enabled.
     bulk_rep_offset: Optional[int] = None
     if bulk_active and not share_bulk:
         bulk_rep_offset = per_rep
         per_rep += n_inj
 
     ka0, kd0 = 1e5, 1e-3
-    kt0 = 50.0
+    # kt0 was the MTL initial guess, now dead (see the commented-out x0_list
+    # branch above): kt0 = 50.0
     all_ymax = max((float(np.nanmax(y_i)) for _, y_i in reps if y_i.size), default=10.0)
     rmax0 = max(all_ymax, 10.0)
 
@@ -667,8 +752,9 @@ def fit_global_sck_11_biacore(
     ub_list: List[float] = [9.0, 1.0]
     if share_rmax:
         x0_list += [rmax0]; lb_list += [0.0]; ub_list += [1e6]
-    if use_mt:
-        x0_list += [np.log10(kt0)]; lb_list += [-3.0]; ub_list += [4.0]
+    # MTL disabled (dead code, see note above):
+    # if use_mt:
+    #     x0_list += [np.log10(kt0)]; lb_list += [-3.0]; ub_list += [4.0]
     if bulk_active and share_bulk:
         x0_list += [0.0] * n_inj; lb_list += [-500.0] * n_inj; ub_list += [500.0] * n_inj
 
@@ -676,8 +762,9 @@ def fit_global_sck_11_biacore(
         if not share_rmax:
             rmax0_i = max(float(np.nanmax(y_i)) if y_i.size else 10.0, 10.0)
             x0_list += [rmax0_i]; lb_list += [0.0]; ub_list += [1e6]
-        if enable_drift:
-            x0_list += [0.0]; lb_list += [-0.1]; ub_list += [0.1]
+        # Drift disabled (dead code, see note above):
+        # if enable_drift:
+        #     x0_list += [0.0]; lb_list += [-0.1]; ub_list += [0.1]
         if bulk_active and not share_bulk:
             x0_list += [0.0] * n_inj; lb_list += [-500.0] * n_inj; ub_list += [500.0] * n_inj
 
@@ -689,6 +776,15 @@ def fit_global_sck_11_biacore(
         if lo is not None: lb_arr[idx] = float(lo)
         if hi is not None: ub_arr[idx] = float(hi)
         if lb_arr[idx] > ub_arr[idx]: lb_arr[idx], ub_arr[idx] = ub_arr[idx], lb_arr[idx]
+        if lb_arr[idx] == ub_arr[idx]:
+            # scipy's least_squares requires lb < ub strictly (equal bounds
+            # raise ValueError). fixed_params fixes a parameter via
+            # _set_b(idx, v, v), i.e. lo == hi — widen by a tiny, scale-aware
+            # epsilon so the bound is valid while the parameter stays
+            # numerically fixed for all practical purposes.
+            eps = max(abs(lb_arr[idx]) * 1e-6, 1e-9)
+            lb_arr[idx] -= eps
+            ub_arr[idx] += eps
         if x0_arr[idx] < lb_arr[idx]: x0_arr[idx] = lb_arr[idx]
         if x0_arr[idx] > ub_arr[idx]: x0_arr[idx] = ub_arr[idx]
 
@@ -709,9 +805,10 @@ def fit_global_sck_11_biacore(
                         _set_b(rmax_shared_idx, lo, hi)
                     else:
                         for ri in range(n_reps): _set_b(n_shared + ri * per_rep + rmax_rep_offset, lo, hi)
-                elif key == "kt_per_s" and use_mt: _set_b(kt_shared_idx, _to_log_bound(lo), _to_log_bound(hi))
-                elif key == "drift_RU_per_s" and enable_drift:
-                    for ri in range(n_reps): _set_b(n_shared + ri * per_rep + drift_rep_offset, lo, hi)
+                # MTL/drift disabled (dead code, see note above):
+                # elif key == "kt_per_s" and use_mt: _set_b(kt_shared_idx, _to_log_bound(lo), _to_log_bound(hi))
+                # elif key == "drift_RU_per_s" and enable_drift:
+                #     for ri in range(n_reps): _set_b(n_shared + ri * per_rep + drift_rep_offset, lo, hi)
             except _InvalidBound:
                 continue
 
@@ -728,15 +825,18 @@ def fit_global_sck_11_biacore(
                     _set_b(rmax_shared_idx, v, v)
                 else:
                     for ri in range(n_reps): _set_b(n_shared + ri * per_rep + rmax_rep_offset, v, v)
-            elif key == "kt_per_s" and use_mt and v > 0:
-                lv = float(np.log10(v)); _set_b(kt_shared_idx, lv, lv)
-            elif key == "drift_RU_per_s" and enable_drift:
-                for ri in range(n_reps): _set_b(n_shared + ri * per_rep + drift_rep_offset, v, v)
+            # MTL/drift disabled (dead code, see note above):
+            # elif key == "kt_per_s" and use_mt and v > 0:
+            #     lv = float(np.log10(v)); _set_b(kt_shared_idx, lv, lv)
+            # elif key == "drift_RU_per_s" and enable_drift:
+            #     for ri in range(n_reps): _set_b(n_shared + ri * per_rep + drift_rep_offset, v, v)
 
     def unpack_shared(x: np.ndarray):
         ka = 10 ** float(x[0]); kd = 10 ** float(x[1])
         rmax = float(x[rmax_shared_idx]) if share_rmax else None
-        kt = 10 ** float(x[kt_shared_idx]) if use_mt else None
+        # MTL disabled (dead code, see note above):
+        # kt = 10 ** float(x[kt_shared_idx]) if use_mt else None
+        kt = None
         bulk_shared: Optional[np.ndarray] = None
         if bulk_shared_idx is not None:
             bulk_shared = x[bulk_shared_idx: bulk_shared_idx + n_inj].astype(float).copy()
@@ -745,7 +845,9 @@ def fit_global_sck_11_biacore(
     def unpack_rep(x: np.ndarray, ri: int):
         base = n_shared + ri * per_rep
         rmax_i = None if share_rmax else float(x[base + rmax_rep_offset])
-        drift = float(x[base + drift_rep_offset]) if enable_drift else 0.0
+        # Drift disabled (dead code, see note above):
+        # drift = float(x[base + drift_rep_offset]) if enable_drift else 0.0
+        drift = 0.0
         bulk_i: Optional[np.ndarray] = None
         if bulk_rep_offset is not None:
             bulk_i = x[base + bulk_rep_offset: base + bulk_rep_offset + n_inj].astype(float).copy()
@@ -756,18 +858,25 @@ def fit_global_sck_11_biacore(
         rmax_i, drift, bulk_i = unpack_rep(x, ri)
         rmax = rmax_shared_val if share_rmax else rmax_i
         bulk = bulk_shared_val if share_bulk else bulk_i
-        if use_mt and kt is not None:
-            return _simulate_11_mass_transport(tt, steps, ka, kd, rmax, kt, drift=drift, bulk_offsets=bulk)
+        # MTL disabled (dead code, see note above; also
+        # _simulate_11_mass_transport itself is commented out):
+        # if use_mt and kt is not None:
+        #     return _simulate_11_mass_transport(tt, steps, ka, kd, rmax, kt, drift=drift, bulk_offsets=bulk)
         return _simulate_11_analytic(tt, steps, ka, kd, rmax, drift=drift, bulk_offsets=bulk)
 
     def residuals_all(x: np.ndarray) -> np.ndarray:
         parts = [predict_rep(t_fit_i, x, ri) - y_fit_i for ri, (t_fit_i, y_fit_i) in enumerate(reps_fit)]
         return np.concatenate(parts)
 
+    # Whitelist restricted to what the web UI actually exposes (soft_l1/
+    # linear/huber) — see dead-code review, 2026-09-22. scipy also supports
+    # "cauchy"/"arctan", accepted here before, but no UI control ever
+    # offered them; removed so they can't be silently selected via a direct
+    # API request either.
     res = least_squares(
         residuals_all, x0_arr,
         bounds=(lb_arr, ub_arr),
-        loss=robust_loss if robust_loss in ("linear", "soft_l1", "huber", "cauchy", "arctan") else "soft_l1",
+        loss=robust_loss if robust_loss in ("linear", "soft_l1", "huber") else "soft_l1",
         f_scale=1.0, max_nfev=12000,
     )
 
@@ -812,9 +921,11 @@ def fit_global_sck_11_biacore(
                 )
                 if not res_b.success:
                     bs_failures += 1; continue
-                ka_b, kd_b, rmax_shared_b, kt_b, bulk_shared_b = unpack_shared(res_b.x)
+                # kt slot unpacked but unused (_): MTL disabled, see note above.
+                ka_b, kd_b, rmax_shared_b, _, bulk_shared_b = unpack_shared(res_b.x)
                 for ri in range(n_reps):
-                    rmax_i_b, drift_b, bulk_i_b = unpack_rep(res_b.x, ri)
+                    # drift slot unpacked but unused (_): drift disabled, see note above.
+                    rmax_i_b, _, bulk_i_b = unpack_rep(res_b.x, ri)
                     rmax_b = rmax_shared_b if share_rmax else rmax_i_b
                     bulk_b = bulk_shared_b if share_bulk else bulk_i_b
                     entry_bs: Dict[str, float] = {
@@ -822,7 +933,6 @@ def fit_global_sck_11_biacore(
                         "KD": float(kd_b / ka_b) if ka_b > 0 else float("nan"),
                         "Rmax": float(rmax_b),
                     }
-                    if enable_drift: entry_bs["drift_RU_per_s"] = float(drift_b)
                     if bulk_b is not None:
                         for i in range(len(bulk_b)): entry_bs[f"bulk_offset_{i}_RU"] = float(bulk_b[i])
                     bs_params_list[ri].append(entry_bs)
@@ -831,7 +941,8 @@ def fit_global_sck_11_biacore(
 
     results: List[Dict[str, Any]] = []
     for ri, (t_i, y_i) in enumerate(reps):
-        rmax_i, drift_i, bulk_i = unpack_rep(res.x, ri)
+        # drift slot unpacked but unused (_): drift disabled, see note above.
+        rmax_i, _, bulk_i = unpack_rep(res.x, ri)
         rmax = rmax_shared_val if share_rmax else rmax_i
         bulk = bulk_shared_val if share_bulk else bulk_i
 
@@ -859,9 +970,10 @@ def fit_global_sck_11_biacore(
                 se_out["Rmax"] = float(se_all[rmax_shared_idx])
             else:
                 se_out["Rmax"] = float(se_all[n_shared + ri * per_rep + rmax_rep_offset])
-            if use_mt: se_out["log10_kt"] = float(se_all[kt_shared_idx])
-            if enable_drift and drift_rep_offset is not None:
-                se_out["drift_RU_per_s"] = float(se_all[n_shared + ri * per_rep + drift_rep_offset])
+            # MTL/drift disabled (dead code, see note above):
+            # if use_mt: se_out["log10_kt"] = float(se_all[kt_shared_idx])
+            # if enable_drift and drift_rep_offset is not None:
+            #     se_out["drift_RU_per_s"] = float(se_all[n_shared + ri * per_rep + drift_rep_offset])
             if bulk_active:
                 for i in range(n_inj):
                     if share_bulk:
@@ -870,8 +982,9 @@ def fit_global_sck_11_biacore(
                         se_out[f"bulk_offset_{i}_RU"] = float(se_all[n_shared + ri * per_rep + bulk_rep_offset + i])
 
         params_i: Dict[str, Any] = {"ka": float(ka), "kd": float(kd), "KD": KD, "Rmax": float(rmax)}
-        if enable_drift: params_i["drift_RU_per_s"] = float(drift_i)
-        if use_mt and kt is not None: params_i["kt_per_s"] = float(kt)
+        # Drift/MTL disabled (dead code, see note above):
+        # if enable_drift: params_i["drift_RU_per_s"] = float(drift_i)
+        # if use_mt and kt is not None: params_i["kt_per_s"] = float(kt)
         if bulk is not None: params_i["bulk_offsets_RU"] = bulk.tolist()
 
         bs_out: Optional[Dict[str, Any]] = None
@@ -898,8 +1011,12 @@ def fit_global_sck_11_biacore(
 
         out_i: Dict[str, Any] = {
             "success": bool(res.success), "message": str(res.message), "nfev": int(res.nfev),
-            "model": "11_mt" if use_mt else "11", "fit_mode": "global",
-            "options": {"enable_drift": bool(enable_drift), "enable_bulk": bool(enable_bulk), "share_rmax": bool(share_rmax), "share_bulk": bool(share_bulk), "excludes": excludes or []},
+            # MTL disabled (dead code, see above), so this is always "11":
+            # "model": "11_mt" if use_mt else "11",
+            "model": "11", "fit_mode": "global",
+            # Drift disabled (dead code, see above) — "enable_drift" is
+            # always False, regardless of the enable_drift argument.
+            "options": {"enable_drift": False, "enable_bulk": bool(enable_bulk), "share_rmax": bool(share_rmax), "share_bulk": bool(share_bulk), "excludes": excludes or []},
             "params": params_i,
             "params_log10": {"log10_ka": float(res.x[0]), "log10_kd": float(res.x[1])},
             "fit_quality": fq_i, "standard_errors": se_out,

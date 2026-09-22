@@ -29,23 +29,30 @@ export function tryParseSteps(jsonText: string): { steps: Step[] | null; error: 
   }
 }
 
-export function buildInjectionsFromConc(tRaw: number[], cRaw: number[]): InjectionStep[] {
-  if (tRaw.length !== cRaw.length || tRaw.length === 0) return [];
-  const changeIdx: number[] = [];
-  for (let i = 1; i < cRaw.length; i++) if (cRaw[i] !== cRaw[i - 1]) changeIdx.push(i);
-  const boundaries = [0, ...changeIdx, cRaw.length];
-  const inj: InjectionStep[] = [];
-  for (let k = 0; k < boundaries.length - 1; k++) {
-    const a = boundaries[k],
-      b = boundaries[k + 1];
-    if (b - a < 3) continue;
-    const start = tRaw[a];
-    const stop = tRaw[b - 1];
-    const C = cRaw[a];
-    if (C > 0) inj.push({ start, stop, C });
-  }
-  return inj;
-}
+// DEAD CODE (commented out, not deleted — see dead-code review, 2026-09-22):
+// buildInjectionsFromConc() auto-built injection steps from a concentration
+// array. It has zero callers anywhere in the frontend — no UI ever exposed
+// a concentration-column selector; steps are defined via marker-clicking or
+// the dilution-series builder instead (see SckParamsSection.tsx). Mirrors
+// the backend's build_steps_from_conc(), also commented out (fit.py).
+//
+// export function buildInjectionsFromConc(tRaw: number[], cRaw: number[]): InjectionStep[] {
+//   if (tRaw.length !== cRaw.length || tRaw.length === 0) return [];
+//   const changeIdx: number[] = [];
+//   for (let i = 1; i < cRaw.length; i++) if (cRaw[i] !== cRaw[i - 1]) changeIdx.push(i);
+//   const boundaries = [0, ...changeIdx, cRaw.length];
+//   const inj: InjectionStep[] = [];
+//   for (let k = 0; k < boundaries.length - 1; k++) {
+//     const a = boundaries[k],
+//       b = boundaries[k + 1];
+//     if (b - a < 3) continue;
+//     const start = tRaw[a];
+//     const stop = tRaw[b - 1];
+//     const C = cRaw[a];
+//     if (C > 0) inj.push({ start, stop, C });
+//   }
+//   return inj;
+// }
 
 export function extractSegment(t: number[], y: number[], start: number, stop: number, normalize: boolean, baseline?: number) {
   const xs: number[] = [];

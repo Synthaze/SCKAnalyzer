@@ -1,5 +1,11 @@
 
-import React, { useMemo, useRef, useState } from "react";
+// App.tsx is the orchestration root: it owns all shared state (via the
+// useFilesets/useSteps/useFitOptions hooks), the tab navigation, and the
+// only code path that actually calls the fit API (runFit). Every tab
+// component below is comparatively "dumb" — it receives what it needs as
+// props/hook results and reports user actions back up through callbacks,
+// rather than owning cross-tab state itself.
+import { useMemo, useRef, useState } from "react";
 import type { FitResult } from "./types";
 import { fitCsv as fitCsvApi, fitGlobalCsv as fitGlobalCsvApi } from "./api";
 import { useFilesets } from "./hooks/useFilesets";
@@ -22,6 +28,10 @@ export default function App() {
   const [fits, setFits] = useState<FitResult[]>([]);
   const fitAbortRef = useRef<AbortController | null>(null);
 
+  // "Injection" specifically means C > 0 — a C = 0 row in the step table is
+  // a dissociation-only/baseline segment, not something to overlay-color by
+  // concentration or count as a bulk-offset slot. Sorted since the step
+  // table lets a user add/reorder rows out of time order.
   const injectionSteps = useMemo(
     () => steps.stepsEffective.filter((s) => s.C > 0).sort((a, b) => a.start - b.start),
     [steps.stepsEffective]
@@ -29,6 +39,10 @@ export default function App() {
 
   const stepsForShading = injectionSteps;
 
+  // Feeds only the Define-steps tab's own preview plot (SckParamsSection).
+  // Distinct from FitResultsSection's plots, which read `fits` (the actual
+  // fit results) instead — this is purely a "does my step table line up
+  // with my data" sanity check, computed before any fit has run.
   const sckPreviewSeries = useMemo(() => {
     const primary = filesets.primaryDataset;
     if (!primary) return null;
@@ -36,6 +50,9 @@ export default function App() {
     return series.length > 0 ? series : null;
   }, [filesets.computedSeries, filesets.primaryDataset]);
 
+  // Gates the "Run fit" button: needs a parsed primary dataset with its
+  // first replicate's columns assigned, and a step definition that's both
+  // present and (if hand-edited as JSON) actually valid.
   const canFit = useMemo(() => {
     const primary = filesets.primaryDataset;
     if (!primary || !primary.parsed) return false;
@@ -103,6 +120,12 @@ export default function App() {
       steps_json: steps.stepsJson.trim() ? steps.stepsJson : undefined,
       baseline_mode: baselineMode,
       robust_loss: robustLoss,
+      // model/enable_drift are hardcoded, not user-configurable: this app
+      // only ever fits the 1:1 Langmuir model with drift disabled. The
+      // mass-transport-limited model and instrument drift exist in the
+      // backend's fit.py but are commented out there (dead code — not a
+      // working/validated feature, see fit.py's dead-code notes) — there is
+      // deliberately no UI control for either.
       model: "11" as const,
       enable_drift: false,
       enable_bulk: enableBulk,
@@ -204,7 +227,10 @@ export default function App() {
           canFit={canFit}
           fits={fits}
           stepsForShading={stepsForShading}
-          refCol={filesets.primaryDataset?.replicates[0]?.refReplicateKey ? "ref" : ""}
+          // refCol: DEAD CODE (commented out, not deleted — see dead-code
+          // review, 2026-09-23) — FitResultsSection never read this prop
+          // (also commented out on its side).
+          // refCol={filesets.primaryDataset?.replicates[0]?.refReplicateKey ? "ref" : ""}
           injectionSteps={injectionSteps}
         />
       )}

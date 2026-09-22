@@ -1,12 +1,29 @@
-import React, { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Plot from "react-plotly.js";
 import Plotly from "plotly.js-dist-min";
-import { formatKD, formatConc, roundDecimals } from "../lib/format";
+import { formatKD, roundDecimals } from "../lib/format";
+// formatConc: DEAD CODE (commented out, not deleted — see dead-code
+// review, 2026-09-23). Imported but never used in this file (confirmed via
+// `tsc --noUnusedLocals --noUnusedParameters`); still used by
+// FitResultsSection.tsx.
+// import { formatConc } from "../lib/format";
 import { downloadText, downloadPlotPng } from "../lib/export";
 import { CONC_UNITS, CONC_MULT, type ConcUnit } from "../lib/units";
 import HelpTip from "./HelpTip";
 
-// ── 1:1 Langmuir analytic simulation ─────────────────
+// The "Simulate" tab: a standalone synthetic-sensorgram generator, entirely
+// independent of the Prepare-dataset/Define-steps/Run-fit pipeline — no
+// data produced here ever flows into an actual fit. Useful for exploring
+// what a given ka/kd/Rmax (and optionally drift/noise) would look like, or
+// for generating test data. Its own `enableDrift` toggle below is a real,
+// working feature of this simulator specifically — unrelated to the Run
+// Fit tab, where instrument drift is not exposed (see App.tsx's runFit).
+
+// Mirrors the backend's _simulate_11_analytic (backend/app/fit.py) —
+// same segment-walking analytic solution for a 1:1 Langmuir model, minus
+// bulk offsets (not a feature of this simulator) — reimplemented in JS so
+// the plot updates instantly as parameters change, without a round trip to
+// the API.
 function simulate11(
   t: number[],
   steps: Array<{ start: number; stop: number; C: number }>,
@@ -47,6 +64,9 @@ function simulate11(
 }
 
 // ── Seeded Gaussian noise (Box-Muller) ────────────────
+// A hand-rolled linear congruential generator (not Math.random(), which
+// can't be seeded) so the same seed always reproduces the exact same noise
+// pattern — needed for the "Seed (optional)" field to be meaningful.
 function addGaussianNoise(y: number[], sigma: number, seed: number): number[] {
   if (sigma <= 0) return [...y];
   let s = (seed | 0) || 1;
@@ -135,6 +155,15 @@ export default function SimulateSection() {
   const mult = CONC_MULT[concUnit];
 
   // ── Build steps + time array ───────────────────────
+  // Lays injections out sequentially from a running `cursor`: each row's
+  // association window starts where the previous one's dissociation ended
+  // (starting after the initial `baseline` duration), so injections/gaps
+  // are relative durations, not absolute timestamps — same idea as the
+  // Define-steps tab's dilution-series builder (useSteps.ts). A row with a
+  // non-finite/non-positive concentration or association time is silently
+  // skipped rather than breaking the sequence. The time array is capped at
+  // 50000 points regardless of total duration/dt, to keep the plot
+  // responsive for very long or finely-sampled simulated runs.
   const { steps, tArr, stepTiming } = useMemo(() => {
     const stepsOut: Array<{ start: number; stop: number; C: number }> = [];
     type TimingEntry = { assocStart: number; assocStop: number; dissocStop: number; C: number };
@@ -172,6 +201,11 @@ export default function SimulateSection() {
     [yClean, noiseSigma, noiseSeed]
   );
 
+  // yDisplay is what the plot's main trace shows: noisy when noise is
+  // enabled, otherwise identical to yClean. yClean is always computed and
+  // kept around regardless, since it's separately overlaid as a dashed
+  // reference trace when noise is on (see plotData below) and included as
+  // its own CSV column.
   const yDisplay = noiseSigma > 0 ? yNoisy : yClean;
   const totalDuration = tArr.length > 0 ? tArr[tArr.length - 1] : 0;
 
@@ -421,8 +455,16 @@ export default function SimulateSection() {
           </thead>
           <tbody>
             {injections.map((inj, i) => {
+              // stepTiming[i] gives this row's absolute start/stop times —
+              // `injections` itself only stores relative durations (assoc/
+              // dissoc seconds), so the table looks these up rather than
+              // computing them inline.
               const timing = stepTiming[i];
               const cv = Number(inj.conc) * mult;
+              // Theoretical steady-state response Req = ka·C·Rmax / (ka·C + kd)
+              // — what this injection would plateau at if held indefinitely;
+              // a quick sanity check independent of the actual simulated
+              // (necessarily time-limited) curve.
               const plateau = (ka && kd && rmax && cv > 0)
                 ? ((ka * cv * rmax) / (ka * cv + kd)).toFixed(1)
                 : "—";

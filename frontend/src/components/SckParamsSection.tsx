@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useMemo, useState } from "react";
 import Plot from "react-plotly.js";
 import Plotly from "plotly.js-dist-min";
 import type { UseStepsResult } from "../hooks/useSteps";
@@ -45,6 +45,9 @@ export default function SckParamsSection({
     buildDilutionSeries,
   } = steps;
 
+  // In "add marker" mode, every plot click appends a new marker time (kept
+  // sorted). Marker pairing (odd = start, even = end) happens later, in
+  // useSteps.ts's createStepsFromCursors, not here.
   function handlePlotClick(event: Readonly<Plotly.PlotMouseEvent>) {
     if (!addCursorMode) return;
     const pt = event.points?.[0];
@@ -53,19 +56,89 @@ export default function SckParamsSection({
     setCursorTimes((prev) => [...prev, t].sort((a, b) => a - b));
   }
 
+  // The three shape groups drawn on the preview plot below, in the fixed
+  // order they must appear in layout.shapes: injection-step rectangles,
+  // then exclude-window rectangles, then cursor lines. Each is memoized so
+  // that BOTH the rendered shapes array further down AND handleRelayout's
+  // index math (below) are built from these exact same array values —
+  // previously each was recomputed independently in two separate places
+  // (a stale/incorrect step count in one, the JSX in the other), which is
+  // exactly what let their bookkeeping silently drift out of sync. With a
+  // single shared source of truth for each group's contents and count,
+  // that class of mismatch can no longer occur.
+  const injectionShapes = useMemo(
+    () =>
+      stepsEffective.map((s) => ({
+        type: "rect" as const,
+        xref: "x" as const,
+        yref: "paper" as const,
+        x0: s.start, x1: s.stop,
+        y0: 0, y1: 1,
+        fillcolor: "rgba(125,211,252,0.18)",
+        line: { width: 0 },
+      })),
+    [stepsEffective]
+  );
+
+  // The same "is this row usable" definition the fit itself relies on for
+  // exclude windows (see useFitOptions.ts's excludesJson) — a row only
+  // counts once both fields are non-empty AND numeric.
+  const validExcludeRows = useMemo(
+    () =>
+      excludeRows.filter(
+        (r) =>
+          r.start.trim() && r.stop.trim() &&
+          Number.isFinite(Number(r.start)) && Number.isFinite(Number(r.stop))
+      ),
+    [excludeRows]
+  );
+
+  const excludeShapes = useMemo(
+    () =>
+      validExcludeRows.map((r) => ({
+        type: "rect" as const,
+        xref: "x" as const,
+        yref: "paper" as const,
+        x0: Number(r.start), x1: Number(r.stop),
+        y0: 0, y1: 1,
+        fillcolor: "rgba(251,146,60,0.20)",
+        line: { width: 0 },
+      })),
+    [validExcludeRows]
+  );
+
+  // Dotted amber vertical lines marking not-yet-committed injection markers
+  // (before "Create steps from markers" is clicked). editable: true is what
+  // lets the user drag them directly on the plot — the only shapes here
+  // that ever fire a relayout event, which is why handleRelayout below only
+  // needs to locate this group's offset, not identify individual injection/
+  // exclude shapes.
+  const cursorShapes: Partial<Plotly.Shape>[] = cursorTimes.map((t) => ({
+    type: "line" as const,
+    xref: "x" as const,
+    yref: "paper" as const,
+    x0: t, x1: t,
+    y0: 0, y1: 1,
+    line: { color: "#f59e0b", width: 2, dash: "dot" },
+    editable: true,
+  }));
+
+  // Plotly's "shapes[i].x0 changed" relayout event fires with i being that
+  // shape's index within the combined layout.shapes array below — so a
+  // dragged marker's index within cursorTimes is (event shape index) minus
+  // however many injection-step and exclude-window shapes precede the
+  // cursor-line group, using the exact same arrays the plot itself renders.
   function handleRelayout(event: Readonly<Plotly.PlotRelayoutEvent>) {
     const updates: Record<number, number> = {};
+    const cursorStart = injectionShapes.length + excludeShapes.length;
     for (const key of Object.keys(event)) {
       const m = key.match(/^shapes\[(\d+)\]\.x0$/);
       if (m) {
         const idx = Number(m[1]);
-        const shapeStart = stepsEffective.filter((s) => s.C > 0).length;
-        const excludeStart = shapeStart + cursorTimes.length;
-        const cursorIdx = idx - shapeStart;
+        const cursorIdx = idx - cursorStart;
         if (cursorIdx >= 0 && cursorIdx < cursorTimes.length) {
           updates[cursorIdx] = (event as Record<string, unknown>)[key] as number;
         }
-        void excludeStart;
       }
     }
     if (Object.keys(updates).length > 0) {
@@ -78,16 +151,6 @@ export default function SckParamsSection({
       });
     }
   }
-
-  const cursorShapes: Partial<Plotly.Shape>[] = cursorTimes.map((t) => ({
-    type: "line" as const,
-    xref: "x" as const,
-    yref: "paper" as const,
-    x0: t, x1: t,
-    y0: 0, y1: 1,
-    line: { color: "#f59e0b", width: 2, dash: "dot" },
-    editable: true,
-  }));
 
   return (
     <div>
@@ -209,6 +272,14 @@ export default function SckParamsSection({
             <p className="muted" style={{ marginBottom: 8 }}>
               Define the injection timing and concentration series. Times and concentrations are computed automatically.
             </p>
+            {/* These fields (and the step table's inputs further below) are
+                uncontrolled: defaultValue + onBlur, committing the value only
+                when the field loses focus rather than on every keystroke, so
+                typing "1e-9" doesn't get clobbered mid-edit by a re-render.
+                Concentration fields additionally key={`...-${concUnit}`} so
+                changing the display unit forces a remount — otherwise a
+                *converted* number would sit in an input whose defaultValue is
+                fixed at mount time and never re-read. */}
             <div className="grid">
               <label>
                 <span>Injection start time (s)<HelpTip text="Time at which the first injection begins (seconds from the start of the trace)." /></span>
@@ -231,6 +302,9 @@ export default function SckParamsSection({
                   onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) setNInj(v); }} />
               </label>
               <label>
+                {/* cFinal (like every step's C) is always held in the hook
+                    as molar; concUnit only controls this field's display —
+                    converted on the way in (× CONC_MULT) and out (÷ CONC_MULT). */}
                 <span>Final concentration <span className="unit">({concUnit})</span><HelpTip text="Highest analyte concentration in the series, shown in the unit selected above (stored internally in molar). Preceding injections are computed by successively dividing by the dilution factor." /></span>
                 <input
                   key={`cFinal-${concUnit}`}
@@ -358,29 +432,11 @@ export default function SckParamsSection({
               yaxis: { title: { text: "Response" }, automargin: true },
               showlegend: previewSeries.length > 1,
               legend: { orientation: "h" as const, y: -0.3, yanchor: "top", x: 0, xanchor: "left" },
-              shapes: [
-                ...stepsEffective.map((s) => ({
-                  type: "rect" as const,
-                  xref: "x" as const,
-                  yref: "paper" as const,
-                  x0: s.start, x1: s.stop,
-                  y0: 0, y1: 1,
-                  fillcolor: "rgba(125,211,252,0.18)",
-                  line: { width: 0 },
-                })),
-                ...excludeRows
-                  .filter((r) => r.start.trim() && r.stop.trim() && Number.isFinite(Number(r.start)) && Number.isFinite(Number(r.stop)))
-                  .map((r) => ({
-                    type: "rect" as const,
-                    xref: "x" as const,
-                    yref: "paper" as const,
-                    x0: Number(r.start), x1: Number(r.stop),
-                    y0: 0, y1: 1,
-                    fillcolor: "rgba(251,146,60,0.20)",
-                    line: { width: 0 },
-                  })),
-                ...cursorShapes,
-              ],
+              // Order matters here: handleRelayout above assumes injection
+              // steps come first, then exclude windows, then cursor lines —
+              // it reads injectionShapes/excludeShapes directly, so this
+              // array and that offset calculation can't drift apart.
+              shapes: [...injectionShapes, ...excludeShapes, ...cursorShapes],
             } as any}
             style={{ width: "100%", height: "300px" }}
             useResizeHandler
@@ -395,7 +451,11 @@ export default function SckParamsSection({
                 Injection steps
               </span>
             )}
-            {excludeRows.some((r) => r.start.trim() && r.stop.trim()) && (
+            {/* Reuses validExcludeRows rather than re-checking excludeRows
+                directly, so this chip only appears when a rectangle is
+                actually rendered for it (a non-empty but non-numeric row
+                previously showed the chip with nothing drawn). */}
+            {validExcludeRows.length > 0 && (
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ display: "inline-block", width: 12, height: 12, background: "rgba(251,146,60,0.5)", borderRadius: 2 }} />
                 Excluded windows
@@ -432,6 +492,10 @@ export default function SckParamsSection({
               excludeRows.map((row, i) => {
                 const s = Number(row.start);
                 const e = Number(row.stop);
+                // Only flags a genuinely invalid (non-empty but stop <= start)
+                // row — an empty or mid-typing row is not an error, it's just
+                // not sent to the fit yet (see useFitOptions.ts's excludesJson,
+                // which applies the same "valid" definition when serializing).
                 const invalidRange =
                   row.start.trim() !== "" && row.stop.trim() !== "" &&
                   Number.isFinite(s) && Number.isFinite(e) && e <= s;

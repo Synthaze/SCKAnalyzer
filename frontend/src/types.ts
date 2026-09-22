@@ -5,8 +5,13 @@ export type FitParams = {
   kd: number;
   KD: number;
   Rmax: number;
-  drift_RU_per_s?: number;
-  kt_per_s?: number;
+  // drift_RU_per_s / kt_per_s: dead round-trip (commented out, not
+  // deleted — see dead-code review, 2026-09-22). The backend never emits
+  // either field anymore (drift and the mass-transport model are
+  // disabled in fit.py) and no component here ever read them even before
+  // that. Restore alongside the backend's drift/MTL code if re-enabled.
+  // drift_RU_per_s?: number;
+  // kt_per_s?: number;
   bulk_offsets_RU?: number[];
 };
 

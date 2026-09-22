@@ -29,8 +29,15 @@ export function formatConc(C: number) {
   return `${(C * 1e12).toFixed(2)} pM`;
 }
 
-export function formatCiFromSe(value: number, se: number | null | undefined, fmt: (v: number) => string) {
-  if (!Number.isFinite(value) || se === null || se === undefined || !Number.isFinite(se)) return "—";
-  const z = 1.96;
-  return `${fmt(value - z * se)} – ${fmt(value + z * se)}`;
-}
+// DEAD CODE (commented out, not deleted — see dead-code review,
+// 2026-09-23): formatCiFromSe would format an approximate 95% CI
+// (value ± 1.96·SE) from the asymptotic standard error. Zero usages
+// anywhere in the project — the Fit tab only ever displays the
+// bootstrap-derived ci95 (see FitResultsSection.tsx), never an SE-derived
+// approximation.
+//
+// export function formatCiFromSe(value: number, se: number | null | undefined, fmt: (v: number) => string) {
+//   if (!Number.isFinite(value) || se === null || se === undefined || !Number.isFinite(se)) return "—";
+//   const z = 1.96;
+//   return `${fmt(value - z * se)} – ${fmt(value + z * se)}`;
+// }

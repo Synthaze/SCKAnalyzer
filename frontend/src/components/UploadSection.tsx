@@ -1,3 +1,11 @@
+// The "Prepare dataset" tab: file upload, per-replicate column assignment,
+// reference/blank subtraction and the visual-only baseline checkbox (see
+// useFilesets.ts's yFit vs y split — the fit never sees what this tab's
+// baseline checkbox changes), dataset merging, and previews of the fully
+// processed trace (plot, data table, both CSV-exportable). The "primary"
+// dataset (radio-selected below) is the one whose replicates/columns feed
+// the rest of the app (Define Steps, Run Fit); everything else stays
+// loaded and can be selected as a reference/blank for the primary one.
 import React, { useRef, useState, useCallback, useMemo } from "react";
 import Plot from "react-plotly.js";
 import Plotly from "plotly.js-dist-min";
@@ -22,6 +30,12 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
     computedSeries, primaryId, setPrimaryId, primaryDataset,
   } = filesets;
 
+  // `primaryId || primaryDataset?.id` recurs throughout this file: primaryId
+  // is "" before any dataset has been explicitly chosen, and
+  // useFilesets.primaryDataset already falls back to the first uploaded
+  // dataset in that case — this just re-derives the same id locally for
+  // filtering computedSeries/plotData by dataset.
+  //
   // All series belonging to the active dataset — a merged/multi-replicate
   // dataset has more than one, and every one of them must be exported.
   const activeDatasetSeries = computedSeries.filter(
@@ -331,6 +345,12 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
           );
         })}
 
+        {/* Merging combines the checked datasets' columns and every one of
+            their series into one new synthetic dataset (see
+            useFilesets.mergeDatasets) — useful when the same replicate's
+            data arrives split across multiple files. The source datasets
+            are left untouched, only a new merged one is added and made
+            primary. */}
         <div style={{ marginTop: 14 }}>
           <button
             className="primary"

@@ -1,3 +1,11 @@
+// Backs the "Define steps" tab: injection steps can be built two ways —
+// clicking start/end markers on the sensorgram (createStepsFromCursors) or
+// the parametric dilution-series builder (buildDilutionSeries) — and are
+// also freely hand-editable as a table or as raw JSON. stepsJson (raw text)
+// and stepsTable (structured rows) are two views of the same data, kept in
+// sync by routing every table-driven mutation through syncSteps(); only
+// stepsJson is edited directly by the user (via a textarea) or by
+// insertExample/buildDilutionSeries/createStepsFromCursors.
 import { useState, useMemo, useEffect } from "react";
 import type { Parsed } from "../types";
 import { tryParseSteps, type Step } from "../lib/steps";
@@ -9,7 +17,16 @@ export type UseStepsResult = {
   stepsStatus: string;
   setStepsStatus: (v: string) => void;
   stepsParsed: { steps: Step[] | null; error: string | null };
+  // Valid steps (stop > start) taken from stepsParsed when it parses
+  // cleanly, falling back to stepsTable otherwise (e.g. mid-edit). This is
+  // what App.tsx treats as "the current step list" for both the preview
+  // plot's shading and — filtered down to C > 0 rows there — what actually
+  // gets sent to the fit as injection steps.
   stepsEffective: Step[];
+  // The one path that updates stepsTable and re-serializes stepsJson from
+  // it together; every table-editing function below (updateStep,
+  // addStepRow, removeStepRow, createStepsFromCursors) goes through this so
+  // the two representations never drift apart.
   syncSteps: (next: Step[]) => void;
   updateStep: (idx: number, field: keyof Step, value: number) => void;
   addStepRow: () => void;
@@ -130,7 +147,11 @@ export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult
       return;
     }
 
-    // Ascending: C_i = cFinal / dilFactor^(nInj-1-i)
+    // Single-cycle kinetics injects increasing concentrations without
+    // regeneration, so cFinal (the field the user actually sets) is the
+    // *last* injection's concentration; earlier injections are computed
+    // backward by repeated division by dilFactor: C_i = cFinal / dilFactor
+    // ^(nInj-1-i), giving C_0 < C_1 < ... < C_{n-1} = cFinal.
     const steps: Array<{ start: number; stop: number; C: number }> = [];
     let cur = start;
     for (let i = 0; i < n; i++) {
@@ -154,6 +175,13 @@ export function useSteps(parsed: Parsed | null, timeCol: string): UseStepsResult
     setStepsJson(JSON.stringify(steps, null, 2));
   }
 
+  // Cursors are plot-click timestamps in click order (see
+  // SckParamsSection.tsx: odd click = a step's start, even click = that
+  // step's end). Sorting by time before pairing means clicks don't have to
+  // be made in strict start/end/start/end order across different steps,
+  // only within each pair. A leftover unpaired cursor (odd length) is
+  // silently dropped. Concentrations always start at 0 — there's no way to
+  // infer them from a click — the user fills them in afterward.
   function createStepsFromCursors(cursors: number[]) {
     if (cursors.length < 2) {
       setStepsStatus("Need at least 2 markers to create steps.");

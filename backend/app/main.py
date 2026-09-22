@@ -9,7 +9,9 @@ import pandas as pd
 
 from .csv_parser import parse_csv
 from .frd_parser import parse_frd
-from .fit import fit_sck_11_biacore, fit_global_sck_11_biacore, build_steps_from_conc, validate_steps
+# build_steps_from_conc is commented out in fit.py (dead code — only
+# reachable via the legacy conc_col path below, itself now commented out).
+from .fit import fit_sck_11_biacore, fit_global_sck_11_biacore, validate_steps
 from .jsonsafe import json_safe
 
 app = FastAPI(title="SCKAnalyzer API", version="0.9.0")
@@ -69,18 +71,22 @@ async def api_parse(
 
 @app.post("/api/fit")
 async def api_fit(
-    file: Optional[UploadFile] = File(None),
-    time_col: Optional[str] = Form(None),
-    ru_col: Optional[str] = Form(None),
-    ref_col: Optional[str] = Form(None),
-    conc_col: Optional[str] = Form(None),
+    # DEAD (commented out, not deleted — see dead-code review, 2026-09-22):
+    # file/time_col/ru_col/ref_col/conc_col were the legacy file+column-name
+    # input path, itself commented out below (the SPA always sends
+    # t_json+y_json). Restore these alongside that commented-out branch.
+    # file: Optional[UploadFile] = File(None),
+    # time_col: Optional[str] = Form(None),
+    # ru_col: Optional[str] = Form(None),
+    # ref_col: Optional[str] = Form(None),
+    # conc_col: Optional[str] = Form(None),
     t_json: Optional[str] = Form(None),
     y_json: Optional[str] = Form(None),
     steps_json: Optional[str] = Form(None),
     baseline_mode: str = Form("pre_first_inj"),  # "pre_first_inj" or "none"
-    robust_loss: str = Form("soft_l1"),  # "linear", "soft_l1", "huber"
-    model: str = Form("11"),  # "11" or "11_mt"
-    enable_drift: bool = Form(True),
+    robust_loss: str = Form("soft_l1"),  # "linear", "soft_l1", "huber" (cauchy/arctan disabled — not exposed in the web UI)
+    model: str = Form("11"),  # "11" only — "11_mt" (MTL) is disabled, not implemented/reachable
+    enable_drift: bool = Form(True),  # ignored: drift is disabled in fit.py — not exposed in the web UI
     enable_bulk: bool = Form(True),
     excludes_json: Optional[str] = Form(None),
     bootstrap_n: Optional[int] = Form(None),
@@ -89,7 +95,9 @@ async def api_fit(
     fixed_json: Optional[str] = Form(None),
 ):
     warnings = []
-    c_all = None
+    # c_all (parsed conc_col values) is no longer set anywhere — its only
+    # producer/consumer was the commented-out legacy branch below.
+    # c_all = None
 
     if t_json is not None or y_json is not None:
         # Pre-processed series supplied directly (e.g. reference/blank-subtracted
@@ -129,83 +137,93 @@ async def api_fit(
         if np.any(np.diff(t) == 0):
             warnings.append("Duplicate time points detected; consider averaging or thinning.")
     else:
-        if file is None or not time_col or not ru_col:
-            return JSONResponse({"error": "Provide file+time_col+ru_col, or t_json+y_json"}, status_code=400)
-
-        content = await file.read()
-        filename = file.filename or ""
-        if filename.lower().endswith(".frd"):
-            try:
-                parsed = parse_frd(content, filename=filename)
-            except ValueError as e:
-                return JSONResponse({"error": str(e)}, status_code=400)
-        else:
-            parsed = parse_csv(content, filename=filename)
-        cols = parsed["columns"]
-        if time_col not in cols or ru_col not in cols:
-            return JSONResponse({"error": "time_col or ru_col not found in CSV columns"}, status_code=400)
-
-        arr = parsed["data"]
-        t = _to_float_array(arr.get(time_col))
-        y = _to_float_array(arr.get(ru_col))
-        if t is None or y is None:
-            return JSONResponse({"error": "time_col or ru_col could not be converted to numeric values"}, status_code=400)
-
-        if ref_col:
-            if ref_col not in cols:
-                return JSONResponse({"error": "ref_col not found in CSV columns"}, status_code=400)
-            ref = _to_float_array(arr.get(ref_col))
-            if ref is None:
-                return JSONResponse({"error": "ref_col could not be converted to numeric values"}, status_code=400)
-            y = y - ref
-
-        if t.size != y.size:
-            return JSONResponse({"error": "time_col and ru_col lengths do not match"}, status_code=400)
-
-        finite_mask = np.isfinite(t) & np.isfinite(y)
-        if ref_col:
-            finite_mask &= np.isfinite(ref)
-
-        if conc_col:
-            if conc_col not in cols:
-                return JSONResponse({"error": "conc_col not found in CSV columns"}, status_code=400)
-            c_all = _to_float_array(arr.get(conc_col))
-            if c_all is None:
-                return JSONResponse({"error": "conc_col could not be converted to numeric values"}, status_code=400)
-            finite_mask &= np.isfinite(c_all)
-
-        dropped = int(np.size(t) - int(np.sum(finite_mask)))
-        if dropped > 0:
-            warnings.append(f"Dropped {dropped} non-finite rows.")
-        t = t[finite_mask]
-        y = y[finite_mask]
-        if c_all is not None:
-            c_all = c_all[finite_mask]
-
-        if t.size < 5:
-            return JSONResponse({"error": "Not enough valid data points after cleaning."}, status_code=400)
-
-        order = np.argsort(t)
-        sorted_by_time = not np.all(order == np.arange(order.size))
-        if sorted_by_time:
-            warnings.append("Time column was not sorted; data were sorted by time.")
-        t = t[order]
-        y = y[order]
-        if c_all is not None:
-            c_all = c_all[order]
-        if np.any(np.diff(t) == 0):
-            warnings.append("Duplicate time points detected; consider averaging or thinning.")
-        n_rows_total = int(len(arr[time_col]))
+        # DEAD CODE (commented out, not deleted — see dead-code review,
+        # 2026-09-22): legacy file+column-name path. The current SPA always
+        # sends t_json/y_json (see api.ts's fitCsv()), never file+time_col+
+        # ru_col — this branch, including same-file ref_col subtraction and
+        # conc_col-based step auto-building, is unreachable from the actual
+        # app. Kept here, disabled, for any direct API caller that relied on
+        # it; restore by uncommenting this block and the conc_col branch
+        # below, plus build_steps_from_conc() and its import (see fit.py).
+        #
+        # if file is None or not time_col or not ru_col:
+        #     return JSONResponse({"error": "Provide file+time_col+ru_col, or t_json+y_json"}, status_code=400)
+        #
+        # content = await file.read()
+        # filename = file.filename or ""
+        # if filename.lower().endswith(".frd"):
+        #     try:
+        #         parsed = parse_frd(content, filename=filename)
+        #     except ValueError as e:
+        #         return JSONResponse({"error": str(e)}, status_code=400)
+        # else:
+        #     parsed = parse_csv(content, filename=filename)
+        # cols = parsed["columns"]
+        # if time_col not in cols or ru_col not in cols:
+        #     return JSONResponse({"error": "time_col or ru_col not found in CSV columns"}, status_code=400)
+        #
+        # arr = parsed["data"]
+        # t = _to_float_array(arr.get(time_col))
+        # y = _to_float_array(arr.get(ru_col))
+        # if t is None or y is None:
+        #     return JSONResponse({"error": "time_col or ru_col could not be converted to numeric values"}, status_code=400)
+        #
+        # if ref_col:
+        #     if ref_col not in cols:
+        #         return JSONResponse({"error": "ref_col not found in CSV columns"}, status_code=400)
+        #     ref = _to_float_array(arr.get(ref_col))
+        #     if ref is None:
+        #         return JSONResponse({"error": "ref_col could not be converted to numeric values"}, status_code=400)
+        #     y = y - ref
+        #
+        # if t.size != y.size:
+        #     return JSONResponse({"error": "time_col and ru_col lengths do not match"}, status_code=400)
+        #
+        # finite_mask = np.isfinite(t) & np.isfinite(y)
+        # if ref_col:
+        #     finite_mask &= np.isfinite(ref)
+        #
+        # if conc_col:
+        #     if conc_col not in cols:
+        #         return JSONResponse({"error": "conc_col not found in CSV columns"}, status_code=400)
+        #     c_all = _to_float_array(arr.get(conc_col))
+        #     if c_all is None:
+        #         return JSONResponse({"error": "conc_col could not be converted to numeric values"}, status_code=400)
+        #     finite_mask &= np.isfinite(c_all)
+        #
+        # dropped = int(np.size(t) - int(np.sum(finite_mask)))
+        # if dropped > 0:
+        #     warnings.append(f"Dropped {dropped} non-finite rows.")
+        # t = t[finite_mask]
+        # y = y[finite_mask]
+        # if c_all is not None:
+        #     c_all = c_all[finite_mask]
+        #
+        # if t.size < 5:
+        #     return JSONResponse({"error": "Not enough valid data points after cleaning."}, status_code=400)
+        #
+        # order = np.argsort(t)
+        # sorted_by_time = not np.all(order == np.arange(order.size))
+        # if sorted_by_time:
+        #     warnings.append("Time column was not sorted; data were sorted by time.")
+        # t = t[order]
+        # y = y[order]
+        # if c_all is not None:
+        #     c_all = c_all[order]
+        # if np.any(np.diff(t) == 0):
+        #     warnings.append("Duplicate time points detected; consider averaging or thinning.")
+        # n_rows_total = int(len(arr[time_col]))
+        return JSONResponse({"error": "Provide t_json and y_json (file+time_col+ru_col input is disabled)"}, status_code=400)
 
     steps_data, err = _parse_json_field(steps_json, "steps_json")
     if err:
         return err
     if steps_data is not None:
         steps = steps_data
-    elif conc_col:
-        steps = build_steps_from_conc(t, c_all)
+    # elif conc_col:  # DEAD CODE (commented out): see legacy-path note above.
+    #     steps = build_steps_from_conc(t, c_all)
     else:
-        return JSONResponse({"error": "Provide either steps_json or conc_col for automatic steps"}, status_code=400)
+        return JSONResponse({"error": "Provide steps_json"}, status_code=400)
 
     try:
         steps = validate_steps(steps, t0=float(t[0]), t1=float(t[-1]))
@@ -277,14 +295,18 @@ async def api_fit(
 
 @app.post("/api/fit_global")
 async def api_fit_global(
-    file: Optional[UploadFile] = File(None),
-    replicates_json: Optional[str] = Form(None),
+    # DEAD (commented out, not deleted — see dead-code review, 2026-09-22):
+    # file/replicates_json were the legacy file+column-name input path,
+    # itself commented out below (the SPA always sends series_json).
+    # Restore these alongside that commented-out branch.
+    # file: Optional[UploadFile] = File(None),
+    # replicates_json: Optional[str] = Form(None),
     series_json: Optional[str] = Form(None),
     steps_json: Optional[str] = Form(None),
     baseline_mode: str = Form("pre_first_inj"),
-    robust_loss: str = Form("soft_l1"),
-    model: str = Form("11"),
-    enable_drift: bool = Form(True),
+    robust_loss: str = Form("soft_l1"),  # "linear", "soft_l1", "huber" (cauchy/arctan disabled — not exposed in the web UI)
+    model: str = Form("11"),  # "11" only — "11_mt" (MTL) is disabled, not implemented/reachable
+    enable_drift: bool = Form(True),  # ignored: drift is disabled in fit.py — not exposed in the web UI
     enable_bulk: bool = Form(True),
     share_rmax: bool = Form(True),
     share_bulk: bool = Form(True),
@@ -321,44 +343,52 @@ async def api_fit_global(
             order = np.argsort(t); t = t[order]; y = y[order]
             reps.append((t, y))
     else:
-        if file is None or not replicates_json:
-            return JSONResponse({"error": "Provide file+replicates_json, or series_json"}, status_code=400)
-
-        content = await file.read()
-        filename = file.filename or ""
-        if filename.lower().endswith(".frd"):
-            try:
-                parsed = parse_frd(content, filename=filename)
-            except ValueError as e:
-                return JSONResponse({"error": str(e)}, status_code=400)
-        else:
-            parsed = parse_csv(content, filename=filename)
-        cols = parsed["columns"]
-        arr = parsed["data"]
-
-        # Parse replicates list
-        try:
-            replicates_spec = json.loads(replicates_json)
-            if not isinstance(replicates_spec, list) or len(replicates_spec) == 0:
-                return JSONResponse({"error": "replicates_json must be a non-empty array of {time_col, ru_col}"}, status_code=400)
-        except Exception as e:
-            return JSONResponse({"error": f"replicates_json is not valid JSON: {e}"}, status_code=400)
-
-        for i, spec in enumerate(replicates_spec):
-            time_col = spec.get("time_col", "")
-            ru_col = spec.get("ru_col", "")
-            if time_col not in cols or ru_col not in cols:
-                return JSONResponse({"error": f"Replicate {i}: time_col or ru_col not found in CSV columns"}, status_code=400)
-            t = _to_float_array(arr.get(time_col))
-            y = _to_float_array(arr.get(ru_col))
-            if t is None or y is None:
-                return JSONResponse({"error": f"Replicate {i}: columns could not be converted to numeric"}, status_code=400)
-            finite_mask = np.isfinite(t) & np.isfinite(y)
-            t = t[finite_mask]; y = y[finite_mask]
-            if t.size < 5:
-                return JSONResponse({"error": f"Replicate {i}: not enough valid data points"}, status_code=400)
-            order = np.argsort(t); t = t[order]; y = y[order]
-            reps.append((t, y))
+        # DEAD CODE (commented out, not deleted — see dead-code review,
+        # 2026-09-22): legacy file+replicates_json path. The current SPA
+        # always sends series_json (see api.ts's fitGlobalCsv()), never
+        # file+replicates_json — this branch is unreachable from the actual
+        # app. Kept here, disabled, for any direct API caller that relied on
+        # it; restore by uncommenting this block.
+        #
+        # if file is None or not replicates_json:
+        #     return JSONResponse({"error": "Provide file+replicates_json, or series_json"}, status_code=400)
+        #
+        # content = await file.read()
+        # filename = file.filename or ""
+        # if filename.lower().endswith(".frd"):
+        #     try:
+        #         parsed = parse_frd(content, filename=filename)
+        #     except ValueError as e:
+        #         return JSONResponse({"error": str(e)}, status_code=400)
+        # else:
+        #     parsed = parse_csv(content, filename=filename)
+        # cols = parsed["columns"]
+        # arr = parsed["data"]
+        #
+        # # Parse replicates list
+        # try:
+        #     replicates_spec = json.loads(replicates_json)
+        #     if not isinstance(replicates_spec, list) or len(replicates_spec) == 0:
+        #         return JSONResponse({"error": "replicates_json must be a non-empty array of {time_col, ru_col}"}, status_code=400)
+        # except Exception as e:
+        #     return JSONResponse({"error": f"replicates_json is not valid JSON: {e}"}, status_code=400)
+        #
+        # for i, spec in enumerate(replicates_spec):
+        #     time_col = spec.get("time_col", "")
+        #     ru_col = spec.get("ru_col", "")
+        #     if time_col not in cols or ru_col not in cols:
+        #         return JSONResponse({"error": f"Replicate {i}: time_col or ru_col not found in CSV columns"}, status_code=400)
+        #     t = _to_float_array(arr.get(time_col))
+        #     y = _to_float_array(arr.get(ru_col))
+        #     if t is None or y is None:
+        #         return JSONResponse({"error": f"Replicate {i}: columns could not be converted to numeric"}, status_code=400)
+        #     finite_mask = np.isfinite(t) & np.isfinite(y)
+        #     t = t[finite_mask]; y = y[finite_mask]
+        #     if t.size < 5:
+        #         return JSONResponse({"error": f"Replicate {i}: not enough valid data points"}, status_code=400)
+        #     order = np.argsort(t); t = t[order]; y = y[order]
+        #     reps.append((t, y))
+        return JSONResponse({"error": "Provide series_json (file+replicates_json input is disabled)"}, status_code=400)
 
     steps_data, err = _parse_json_field(steps_json, "steps_json")
     if err: return err
