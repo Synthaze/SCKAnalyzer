@@ -145,6 +145,11 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
         {datasets.map((ds) => {
           const isPrimary = ds.id === (primaryId || primaryDataset?.id);
           const cols = ds.parsed?.columns ?? [];
+          // conc_M (the known injected concentration, from parsed .frd files
+          // or a merged dataset's prefixed copy) is metadata, not a time or
+          // response trace — offering it as a Time/Signal choice is never
+          // correct, so it's hidden from those two selectors specifically.
+          const selectableCols = cols.filter((c) => !/(^|_)conc_m$/i.test(c));
           const showMergeCheck = datasets.length >= 2;
 
           return (
@@ -226,7 +231,7 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                       onChange={(e) => updateReplicate(ds.id, ri, { xCol: e.target.value })}
                       style={{ padding: "4px 6px", fontSize: 12, minWidth: 120 }}
                     >
-                      {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {selectableCols.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </label>
 
@@ -237,7 +242,7 @@ export default function UploadSection({ filesets, stepsForShading }: Props) {
                       onChange={(e) => updateReplicate(ds.id, ri, { yCol: e.target.value })}
                       style={{ padding: "4px 6px", fontSize: 12, minWidth: 120 }}
                     >
-                      {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {selectableCols.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </label>
 

@@ -12,7 +12,7 @@ from .frd_parser import parse_frd
 from .fit import fit_sck_11_biacore, fit_global_sck_11_biacore, build_steps_from_conc, validate_steps
 from .jsonsafe import json_safe
 
-app = FastAPI(title="SCKAnalyzer API", version="0.2.0")
+app = FastAPI(title="SCKAnalyzer API", version="0.9.0")
 
 # Dev-friendly CORS (internal app). Tighten as needed.
 app.add_middleware(

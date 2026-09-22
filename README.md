@@ -8,7 +8,7 @@
 
 **A web application for global kinetic analysis of Single-Cycle Kinetics (SCK) biosensor experiments (SPR / BLI).**
 
-SCKAnalyzer fits multi-injection, single-cycle sensorgrams to a 1:1 Langmuir binding model — with optional mass-transport limitation, instrument drift, and bulk refractive-index offset correction — and reports association/dissociation rate constants, equilibrium affinity, fit-quality diagnostics, and bootstrap confidence intervals. It is released as open-source software to accompany the associated publication (see [Citation](#citation)).
+SCKAnalyzer fits multi-injection, single-cycle sensorgrams to a 1:1 Langmuir binding model — with optional per-injection bulk (refractive-index) offset correction — and reports association/dissociation rate constants, equilibrium affinity, fit-quality diagnostics, and bootstrap confidence intervals. It is released as open-source software to accompany the associated publication (see [Citation](#citation)).
 
 **Live instance:** https://sck.iecb.u-bordeaux.fr
 
@@ -19,22 +19,22 @@ Single-cycle kinetics is an experimental design (used in Surface Plasmon Resonan
 SCKAnalyzer fits this trace directly using a **global, non-linear least-squares** approach:
 
 - **Binding model**: 1:1 Langmuir (`ka`, `kd`, `R_max`), solved analytically per injection segment.
-- **Mass-transport-limited model** (optional): a simplified two-compartment extension (`dCs/dt = kt(C − Cs)`, `dR/dt = ka·Cs·(R_max − R) − kd·R`), integrated numerically, for surfaces where analyte transport to the sensor is rate-limiting.
-- **Global fitting across replicates**: shared `ka`, `kd`, `R_max` (and `kt`) across multiple injected replicates, with per-replicate nuisance parameters (drift, bulk offsets) fitted independently.
-- **Nuisance parameters**: optional per-injection bulk (refractive-index) offsets and a linear instrument-drift term.
-- **Robust loss functions**: linear, soft-L1, Huber, Cauchy, or arctan loss (via `scipy.optimize.least_squares`) to reduce sensitivity to outliers/artifacts.
+- **Global fitting across replicates**: `ka`/`kd` are always shared across replicates in global mode; sharing `R_max` and sharing per-injection bulk offsets are each an independent, optional toggle.
+- **Nuisance parameters**: optional per-injection bulk (refractive-index) offsets, shareable across replicates in global mode.
+- **Robust loss functions**: soft-L1 (default), linear, or Huber loss (via `scipy.optimize.least_squares`) to reduce sensitivity to outliers/artifacts.
 - **Uncertainty quantification**: asymptotic standard errors from the Jacobian-based covariance estimate, and optional residual-resampling bootstrap (95% CI).
-- **Fit diagnostics**: RMSE, MAE, R², AIC, BIC, and the Durbin–Watson statistic (residual autocorrelation).
+- **Fit diagnostics**: RMSE, MAE, R², AIC, BIC, and reduced chi-square are computed by the backend; the web UI's results table currently displays RMSE, R², reduced chi-square, and N points.
 
 ## Features
 
-- Upload generic CSV sensorgrams or Octet **.frd** files directly.
-- Auto-detect injection steps from a concentration column, or supply explicit step windows.
-- Reference-channel subtraction and pre-injection baseline correction.
+- Upload generic CSV sensorgrams or Octet **.frd** files directly, with support for multiple files/replicates and merging datasets together.
+- Define injection steps either by clicking start/end markers directly on the sensorgram, or by specifying a serial dilution scheme (start time, injection/gap durations, number of injections, final concentration, dilution factor) that auto-builds the full step table.
+- Two independently-configurable, chainable trace corrections per replicate: reference-channel subtraction and double-reference (blank-run) subtraction, each selecting another uploaded replicate.
+- A visual "Baseline → 0" normalization for the Prepare-dataset/Define-steps previews (display-only — it does not affect the fitted values), plus a separate baseline correction applied by the fit itself.
 - Interactive step editor, exclusion windows (bubbles/spikes), and per-parameter bounds/fixed values.
 - Overlaid association/dissociation QA plots with per-injection RMSE and ΔRU normalization.
-- CSV/PNG export of fits, residuals, and overlap plots for figures and reports.
-- Single-replicate and global (multi-replicate) fitting modes.
+- Per-plot and per-table CSV/PNG export, plus a single "download all" ZIP bundle (plots, tables, and a manifest).
+- Per-replicate and global (multi-replicate, shared-parameter) fitting modes.
 
 ## Repository structure
 
@@ -43,7 +43,7 @@ SCKAnalyzer/
 ├── backend/            FastAPI service: parsing (CSV/FRD) and kinetic fitting (NumPy/SciPy)
 │   ├── app/
 │   │   ├── main.py         API endpoints
-│   │   ├── fit.py          1:1 Langmuir / mass-transport models, global fitting, bootstrap
+│   │   ├── fit.py          1:1 Langmuir model, global fitting, bootstrap
 │   │   ├── csv_parser.py    Generic CSV / BLI DAT parsing
 │   │   └── frd_parser.py    Octet BLI .frd (XML) parsing
 │   └── tests/           Example sensorgram datasets
@@ -120,18 +120,18 @@ sudo ./deploy/setup_server.sh
 ## Usage
 
 1. Upload a sensorgram file (generic CSV, or an Octet `.frd` file) via the web UI.
-2. Select the time and response columns (and, optionally, a reference column and/or a concentration column).
-3. Define injection steps manually, or auto-build them from the concentration column.
-4. Choose the binding model (1:1, or 1:1 with mass-transport limitation), robust loss, and any nuisance parameters (drift, bulk offsets), then run the fit.
-5. Inspect fitted parameters, quality metrics, and residual/overlap plots; export results as CSV/PNG.
+2. Select the time and response columns for each replicate, and optionally configure reference-channel subtraction and/or double-reference (blank-run) subtraction by choosing another uploaded replicate.
+3. Define injection steps by clicking start/end markers on the sensorgram, or by specifying a serial dilution scheme that auto-builds the step table; optionally mark exclusion windows to remove from the fit.
+4. Choose per-replicate or global fitting mode, configure bulk-offset fitting and its sharing, robust loss, baseline handling, and per-parameter bounds/fixed values, then run the fit.
+5. Inspect fitted parameters, quality metrics, and residual/overlap plots; export results as CSV/PNG per plot or as a single ZIP bundle.
 
 ### Input data format
 
-Generic CSV input requires at minimum a time column and a response column (e.g. `time`, `ru`), with optional reference and concentration columns. Example datasets are provided in `backend/tests/`. Octet BLI `.frd` files are parsed directly (baseline/association/dissociation segments are stitched automatically; regeneration/neutralization steps are excluded).
+Generic CSV input requires at minimum a time column and a response column (e.g. `time`, `ru`) per replicate; injection concentrations are entered in the step table rather than read from a column, and a reference/blank trace is selected from among the other uploaded replicates rather than from a column in the same file. Example datasets are provided in `backend/tests/`. Octet BLI `.frd` files are parsed directly (baseline/association/dissociation segments are stitched automatically; regeneration/neutralization steps are excluded).
 
 ### Testing
 
-There is no automated test suite (no CI, no `pytest`). `backend/tests/` holds example sensorgrams for manual smoke-testing: start the app (see Installation) and upload one of them via the UI to verify parsing, step auto-detection, and fitting end to end.
+There is no automated test suite (no CI, no `pytest`). `backend/tests/` holds example sensorgrams for manual smoke-testing: start the app (see Installation) and upload one of them via the UI to verify parsing, step definition, and fitting end to end.
 
 ### API
 
@@ -148,7 +148,7 @@ The backend exposes a small JSON/multipart API (see `backend/app/main.py`):
 
 If you use SCKAnalyzer in your research, please cite:
 
-> [Authors]. SCKAnalyzer: a web application for global kinetic analysis of single-cycle kinetics biosensor experiments. *[Journal]*, [year]. DOI: [to be added upon publication].
+> Malard, F., Blanc, J.-M., Roubin, E., Schäfer, T. & Di Primo, C. *SCKAnalyzer: An Online Tool for Single Cycle Kinetics Data Processing*. In preparation, 2026.
 
 A `CITATION.cff` / archived software DOI (e.g. via Zenodo) will be added at the time of publication.
 
