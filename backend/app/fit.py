@@ -23,6 +23,11 @@ def validate_steps(steps: List[Dict[str, Any]], t0: float, t1: float) -> List[St
         C = float(s["C"])
         if stop <= start:
             raise ValueError(f"step {i} has stop <= start")
+        if C < 0:
+            raise ValueError(
+                f"step {i} has a negative concentration ({C}); concentrations "
+                "must be >= 0 (use 0 for a baseline/dissociation-only segment)"
+            )
         out.append({"start": start, "stop": stop, "C": C})
     out.sort(key=lambda x: x["start"])
     if out[0]["start"] < t0 - 1e-9 or out[-1]["stop"] > t1 + 1e-9:

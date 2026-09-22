@@ -16,10 +16,13 @@ from .jsonsafe import json_safe
 
 app = FastAPI(title="SCKAnalyzer API", version="0.9.0")
 
-# Dev-friendly CORS (internal app). Tighten as needed.
+# Permissive CORS: the app sits behind nginx basic auth + TLS regardless, so
+# this doesn't widen access on its own; it just lets the API be called
+# cross-origin at all. "*" already covers the specific localhost dev-server
+# origins below it, so listing them separately was redundant.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,7 +70,13 @@ async def api_parse(
             return json_safe(parse_frd(content, filename=filename))
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
-    return json_safe(parse_csv(content, delimiter=delimiter, filename=filename))
+    parsed = parse_csv(content, delimiter=delimiter, filename=filename)
+    if not parsed.get("columns"):
+        return JSONResponse(
+            {"error": "Could not find any columns in this file — check that it's a valid CSV/TSV/DAT file."},
+            status_code=400,
+        )
+    return json_safe(parsed)
 
 @app.post("/api/fit")
 async def api_fit(

@@ -46,7 +46,6 @@ SCKAnalyzer/
 │   │   ├── fit.py          1:1 Langmuir model, global fitting, bootstrap
 │   │   ├── csv_parser.py    Generic CSV / BLI DAT parsing
 │   │   └── frd_parser.py    Octet BLI .frd (XML) parsing
-│   └── tests/           Example sensorgram datasets
 ├── frontend/           React + Vite + Plotly single-page application
 ├── deploy/             Reference nginx/systemd provisioning script + config template
 └── Dockerfile          Backend container image
@@ -127,11 +126,11 @@ sudo ./deploy/setup_server.sh
 
 ### Input data format
 
-Generic CSV input requires at minimum a time column and a response column (e.g. `time`, `ru`) per replicate; injection concentrations are entered in the step table rather than read from a column, and a reference/blank trace is selected from among the other uploaded replicates rather than from a column in the same file. Example datasets are provided in `backend/tests/`. Octet BLI `.frd` files are parsed directly (baseline/association/dissociation segments are stitched automatically; regeneration/neutralization steps are excluded).
+Generic CSV input requires at minimum a time column and a response column (e.g. `time`, `ru`) per replicate; injection concentrations are entered in the step table rather than read from a column, and a reference/blank trace is selected from among the other uploaded replicates rather than from a column in the same file. Octet BLI `.frd` files are parsed directly (baseline/association/dissociation segments are stitched automatically; regeneration/neutralization steps are excluded).
 
 ### Testing
 
-There is no automated test suite (no CI, no `pytest`). `backend/tests/` holds example sensorgrams for manual smoke-testing: start the app (see Installation) and upload one of them via the UI to verify parsing, step definition, and fitting end to end.
+There is no automated test suite (no CI, no `pytest`). To smoke-test manually: start the app (see Installation) and upload a sensorgram file via the UI to verify parsing, step definition, and fitting end to end.
 
 ### API
 
