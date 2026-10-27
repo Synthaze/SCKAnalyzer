@@ -147,9 +147,9 @@ The backend exposes a small JSON/multipart API (see `backend/app/main.py`):
 
 If you use SCKAnalyzer in your research, please cite:
 
-> Malard, F., Blanc, J.-M., Roubin, E., Schäfer, T. & Di Primo, C. *SCKAnalyzer: An Online Tool for Single Cycle Kinetics Data Processing*. In preparation, 2026.
+> Malard, F., Blanc, J.-M., Roubin, E., Schäfer, T. & Di Primo, C. *SCKAnalyzer: A Web Tool for Single-Cycle Kinetics Analysis and Simulation*. bioRxiv (2026). doi:[10.64898/2026.10.07.756993](https://doi.org/10.64898/2026.10.07.756993)
 
-A `CITATION.cff` / archived software DOI (e.g. via Zenodo) will be added at the time of publication.
+This is currently a bioRxiv preprint (not yet peer-reviewed). A `CITATION.cff` / archived software DOI (e.g. via Zenodo) will be added once the manuscript is accepted for publication.
 
 ## License
 

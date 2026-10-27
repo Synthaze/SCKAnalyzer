@@ -46,7 +46,7 @@ export default function IntroductionSection() {
       >
         <div style={{ fontWeight: 600, marginBottom: 4 }}>If you use this tool, please cite:</div>
         <div style={{ fontSize: 13.5 }}>
-          Malard, F., Blanc, J.-M., Roubin, E., Schäfer, T. &amp; Di Primo, C. <em>SCKAnalyzer: An Online Tool for Single Cycle Kinetics Data Processing</em>. In preparation, 2026.
+          Malard, F., Blanc, J.-M., Roubin, E., Schäfer, T. &amp; Di Primo, C. <em>SCKAnalyzer: A Web Tool for Single-Cycle Kinetics Analysis and Simulation</em>. bioRxiv (2026). doi:<a href="https://doi.org/10.64898/2026.10.07.756993" target="_blank" rel="noopener noreferrer">10.64898/2026.10.07.756993</a>
         </div>
       </div>
     </div>
